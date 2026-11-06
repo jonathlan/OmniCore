@@ -2087,11 +2087,17 @@ public sealed partial class TuiApp
         // Permission and recovery details must remain readable even when the subject
         // wraps beyond the allotted height. Focus still starts on the safe option.
 #pragma warning disable CS0618
-        overlay.Add(new TextView { Id = interaction.Kind == "MemoryPromotion" ? "memory-promotion-content" : "interaction-content",
+        var body = new TextView { Id = interaction.Kind == "MemoryPromotion" ? "memory-promotion-content" : "interaction-content",
             X = 2, Y = 2, Width = Dim.Fill(2), Height = bodyHeight,
             ReadOnly = true, WordWrap = true, ScrollBars = true,
-            Text = interaction.Subject.Length == 0 ? interaction.Kind : interaction.Subject });
+            Text = interaction.Subject.Length == 0 ? interaction.Kind : interaction.Subject };
 #pragma warning restore CS0618
+        body.KeyDown += (_, key) =>
+        {
+            if (key.KeyCode != KeyCode.Enter) return;
+            key.Handled = true; RespondDefault(interaction);
+        };
+        overlay.Add(body);
         Button? defaultButton = null;
         for (var index = 0; index < interaction.Options.Count; index++)
         {

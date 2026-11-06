@@ -1671,7 +1671,7 @@ public sealed partial class TuiWiringTests
         KeyWithEffect(fx, KeyCode.F4, () => fx.App.Overlay is not null, "centro de preferencias visible");
         fx.Read(() =>
         {
-            var preferencesOverlay = Assert.IsType<FrameView>(fx.App.Overlay);
+            var preferencesOverlay = Assert.IsAssignableFrom<FrameView>(fx.App.Overlay);
             Assert.Equal(PreferenceCategoryCatalog.All.Count, Descendants(preferencesOverlay).OfType<ListView>().Single(view => view.Id == "preferences-categories").Source!.Count);
             Assert.Equal(columns >= 100, preferencesOverlay.SubViews.Any(view => view.Id == "preferences-panel"));
         });

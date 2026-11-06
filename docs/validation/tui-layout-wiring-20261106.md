@@ -20,7 +20,8 @@ explicación y con un fondo que se confundía con el chat.
   Aceptar mantiene el foco inicial: Enter cierra el aviso y Tab permite leerlo.
 - Los detalles de permisos y demás elecciones también permiten desplazamiento.
   El foco inicial conserva la opción segura enviada por el Host y Esc conserva
-  esa respuesta; leer el texto no concede permisos.
+  esa respuesta; Enter desde el texto usa también esa opción predeterminada.
+  Leer el texto no concede permisos.
 - Buscar y pulsar Enter retoma la conversación seleccionada. Sin coincidencias,
   Retomar se deshabilita. Cancelar no selecciona una conversación ni envía el
   borrador, y continuar una recuperación no crea otro turno.
@@ -56,7 +57,7 @@ real; contiene una conversación sintética, no una conversación del usuario.
 | Comprobación local del cambio | Resultado |
 |---|---|
 | Solución Release, incluidos límites net8 | 0 advertencias, 0 errores |
-| Selector, avisos, permisos, cancelación y sesión ocupada | 27 PASS, 0 FAIL |
+| Selector, avisos, permisos, cancelación, sesión ocupada y navegación | 31 PASS, 0 FAIL |
 | Arquitectura | 62 PASS, 0 FAIL |
 | SDK de extensiones | 44 PASS, 0 FAIL |
 | Instalador, lanzador y updater npm | 69 PASS, 0 FAIL, 1 SKIP por symlink |
@@ -71,6 +72,12 @@ recibo `Succeeded` se escribe antes de que el `finally` del helper libere su loc
 La espera del fixture exige ahora ambas condiciones antes de inspeccionar la
 limpieza. Conserva los límites de tiempo y todas las aserciones de recuperación;
 no cambia el orden de bloqueo ni el comportamiento del updater de producción.
+La regresión de 796 casos encontró además dos variantes de autorización desde
+atajos de extensiones que usaban Tab y Enter: el texto nuevo recibía el foco y
+dejaba de aceptar. Enter desde ese lector responde ahora con la opción
+predeterminada del Host, validada también con un permiso de varias opciones.
+La prueba de preferencias acepta el subtipo de FrameView que conserva el fondo,
+manteniendo sus comprobaciones de navegación, contenido, idioma y borrador.
 La evidencia local se conserva en
 `artifacts/tui-audit-20261106/` y `artifacts/tui-audit-*.log` del checkout de trabajo.
 

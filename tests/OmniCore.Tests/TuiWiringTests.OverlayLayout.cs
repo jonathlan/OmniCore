@@ -120,8 +120,10 @@ public sealed partial class TuiWiringTests
         Assert.False(frame.ViewportSettings.HasFlag(ViewportSettingsFlags.Transparent));
     }
 
-    [Fact]
-    public void Long_permission_details_remain_readable_and_Escape_still_denies() => RunTuiTest(fx =>
+    [Theory]
+    [InlineData(KeyCode.Esc)]
+    [InlineData(KeyCode.Enter)]
+    public void Long_permission_details_remain_readable_and_safe_response_is_preserved(KeyCode response) => RunTuiTest(fx =>
     {
         var interaction = InteractionId.New();
         var target = string.Join('/', Enumerable.Repeat("long-folder-name", 30)) + "/FINAL-MARKER.txt";
@@ -142,7 +144,7 @@ public sealed partial class TuiWiringTests
         });
         fx.InjectKey(new Key(KeyCode.End | KeyCode.CtrlMask));
         fx.Wait(() => fx.Read(() => Descendants(fx.App.Overlay!).Single(view => view.Id == "interaction-content").Viewport.Y > 0), "permission subject can scroll");
-        KeyWithEffect(fx, KeyCode.Esc, () => fx.App.Overlay is null, "Escape still uses safe server option");
+        KeyWithEffect(fx, response, () => fx.App.Overlay is null, "reading keeps the safe server option");
         Assert.Equal("deny", fx.Decoded<InteractionResolved>().Single(item => item.InteractionId.Equals(interaction)).OptionId);
     });
 }
