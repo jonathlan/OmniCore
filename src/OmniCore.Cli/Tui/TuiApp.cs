@@ -3256,7 +3256,7 @@ public sealed partial class TuiApp
             Text = message, ReadOnly = true, WordWrap = true, ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar };
 #pragma warning restore CS0618
         var ok = new Button { Id = "message-close", X = Pos.AnchorEnd(12), Y = Pos.AnchorEnd(2), Text = _localization.Resolve("shell.ok") };
-        ok.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); }; frame.Add(body, ok); ApplyTheme(frame); _overlay = frame; _window.Add(frame); body.SetFocus();
+        ok.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); }; frame.Add(body, ok); ApplyTheme(frame); _overlay = frame; _window.Add(frame); ok.SetFocus();
     }
 
     private void CloseOverlay()

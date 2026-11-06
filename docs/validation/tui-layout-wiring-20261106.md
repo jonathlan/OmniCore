@@ -17,6 +17,7 @@ explicación y con un fondo que se confundía con el chat.
 - Los avisos conservan el texto íntegro en una vista de sólo lectura con ajuste de
   línea y desplazamiento. Ya no eliminan el final con puntos suspensivos ni
   dependen de la cantidad de saltos de línea para que un párrafo sea legible.
+  Aceptar mantiene el foco inicial: Enter cierra el aviso y Tab permite leerlo.
 - Los detalles de permisos y demás elecciones también permiten desplazamiento.
   El foco inicial conserva la opción segura enviada por el Host y Esc conserva
   esa respuesta; leer el texto no concede permisos.
@@ -55,13 +56,16 @@ real; contiene una conversación sintética, no una conversación del usuario.
 | Comprobación local del cambio | Resultado |
 |---|---|
 | Solución Release, incluidos límites net8 | 0 advertencias, 0 errores |
-| Selector, avisos, permisos y cancelación | 24 PASS, 0 FAIL |
+| Selector, avisos, permisos, cancelación y sesión ocupada | 27 PASS, 0 FAIL |
 | Arquitectura | 62 PASS, 0 FAIL |
 | SDK de extensiones | 44 PASS, 0 FAIL |
 | Instalador, lanzador y updater npm | 69 PASS, 0 FAIL, 1 SKIP por symlink |
 
 La regresión ampliada, CI, versión y aceptación pública tienen sus propios
 recibos: no se atribuye el verde de una revisión anterior al nuevo commit.
+La primera regresión ampliada detectó la pérdida de Aceptar como foco inicial
+en los avisos de sesión ocupada. Se detuvo esa imagen y se corrigió el foco;
+la prueba de aviso largo también exige que Aceptar lo conserve antes de leer.
 La evidencia local se conserva en
 `artifacts/tui-audit-20261106/` y `artifacts/tui-audit-*.log` del checkout de trabajo.
 

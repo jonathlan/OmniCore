@@ -96,6 +96,7 @@ public sealed partial class TuiWiringTests
             Assert.Equal(content, body.Text.Replace("\r\n", "\n"));
             Assert.True(body.ReadOnly && body.WordWrap && body.CanFocus);
             var close = Descendants(fx.App.Overlay!).Single(view => view.Id == "message-close");
+            Assert.True(close.HasFocus);
             Assert.True(body.Frame.Bottom <= close.Frame.Top);
             Assert.True(close.Frame.Bottom <= fx.App.Overlay!.Viewport.Height);
             body.SetFocus();
