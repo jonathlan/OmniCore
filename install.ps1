@@ -3,7 +3,8 @@
 param(
     [ValidateSet('Stable', 'Preview')][string]$Channel = 'Stable',
     [string]$Version,
-    [string]$Prefix
+    [string]$Prefix,
+    [switch]$NoPathPersistence
 )
 
 $script:OmniInstallMessages = ConvertFrom-Json @'
@@ -39,10 +40,10 @@ $script:OmniInstallMessages = ConvertFrom-Json @'
     "Il manifest non contiene un pacchetto Windows x64 valido."
   ],
   "fileMismatch": [
-    "El archivo no coincide con su tama\u00f1o o SHA-256: {0}",
-    "File size or SHA-256 does not match: {0}",
-    "La taille ou le SHA-256 du fichier ne correspond pas : {0}",
-    "Dimensione o SHA-256 del file non corrisponde: {0}"
+    "El archivo no coincide con su tama\u00f1o o hash: {0}",
+    "File size or hash does not match: {0}",
+    "La taille ou le hash du fichier ne correspond pas : {0}",
+    "Dimensione o hash del file non corrisponde: {0}"
   ],
   "publisherInvalid": [
     "La attestation no acredita la identidad permanente del repositorio y el archivo esperado.",
@@ -146,6 +147,42 @@ $script:OmniInstallMessages = ConvertFrom-Json @'
     "Commande : {0}",
     "Comando: {0}"
   ],
+  "dependencyInstall": [
+    "Instalando {0} desde su distribuci\u00f3n oficial...",
+    "Installing {0} from its official distribution...",
+    "Installation de {0} depuis sa distribution officielle...",
+    "Installazione di {0} dalla distribuzione ufficiale..."
+  ],
+  "dependencyMetadata": [
+    "Los metadatos oficiales de {0} no contienen un instalador x64 v\u00e1lido.",
+    "Official metadata for {0} has no valid x64 installer.",
+    "Les m\u00e9tadonn\u00e9es officielles de {0} ne contiennent pas d'installateur x64 valide.",
+    "I metadati ufficiali di {0} non contengono un installer x64 valido."
+  ],
+  "dependencySignature": [
+    "La firma de Windows del instalador no es v\u00e1lida: {0}",
+    "The installer's Windows signature is not valid: {0}",
+    "La signature Windows de l'installateur n'est pas valide : {0}",
+    "La firma Windows dell'installer non \u00e8 valida: {0}"
+  ],
+  "dependencyFailed": [
+    "La instalaci\u00f3n de {0} fall\u00f3 o se cancel\u00f3 (c\u00f3digo {1}).",
+    "Installation of {0} failed or was cancelled (code {1}).",
+    "L'installation de {0} a \u00e9chou\u00e9 ou a \u00e9t\u00e9 annul\u00e9e (code {1}).",
+    "L'installazione di {0} non \u00e8 riuscita o \u00e8 stata annullata (codice {1})."
+  ],
+  "dependencyUnavailable": [
+    "{0} sigue sin estar disponible despu\u00e9s de instalarlo. No se ha instalado OmniCore.",
+    "{0} is still unavailable after installation. OmniCore has not been installed.",
+    "{0} reste indisponible apr\u00e8s l'installation. OmniCore n'a pas \u00e9t\u00e9 install\u00e9.",
+    "{0} non \u00e8 ancora disponibile dopo l'installazione. OmniCore non \u00e8 stato installato."
+  ],
+  "administratorConsent": [
+    "Windows puede pedir autorizaci\u00f3n de administrador para instalar {0}.",
+    "Windows may request administrator approval to install {0}.",
+    "Windows peut demander une autorisation administrateur pour installer {0}.",
+    "Windows pu\u00f2 richiedere l'autorizzazione amministratore per installare {0}."
+  ],
   "customPath": [
     "Para pr\u00f3ximas terminales, agrega ese prefijo personalizado al PATH del usuario.",
     "For future terminals, add this custom prefix to your user PATH.",
@@ -212,10 +249,11 @@ function Get-OmniManifestAsset {
 }
 
 function Assert-OmniFile {
-    param([string]$Path, [string]$Sha256, [long]$Size = 0)
+    param([string]$Path, [string]$ExpectedHash, [long]$Size = 0,
+        [ValidateSet('SHA256', 'SHA512')][string]$Algorithm = 'SHA256')
     $file = Get-Item -LiteralPath $Path -ErrorAction Stop
     if (($Size -gt 0 -and $file.Length -ne $Size) -or
-        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Sha256) {
+        (Get-FileHash -LiteralPath $Path -Algorithm $Algorithm).Hash.ToLowerInvariant() -cne $ExpectedHash.ToLowerInvariant()) {
         throw ((Get-OmniInstallText 'fileMismatch') -f $file.Name)
     }
 }
@@ -292,18 +330,199 @@ function Save-OmniDownload {
     if ($size -lt 1 -or $size -gt $MaximumBytes) { throw (Get-OmniInstallText 'downloadSize') }
 }
 
+function Get-OmniNodeInstaller {
+    param([object[]]$Index)
+    $selected = $Index | Where-Object {
+        $_.lts -is [string] -and $_.lts -and $_.version -cmatch '^v\d+\.\d+\.\d+$' -and
+        [version]$_.version.Substring(1) -ge [version]'20.0.0' -and $_.files -contains 'win-x64-msi'
+    } | Sort-Object { [version]$_.version.Substring(1) } -Descending | Select-Object -First 1
+    if ($null -eq $selected) { throw ((Get-OmniInstallText 'dependencyMetadata') -f 'Node.js LTS') }
+    $name = 'node-' + $selected.version + '-x64.msi'
+    return [pscustomobject]@{ Version = $selected.version; Name = $name;
+        Url = "https://nodejs.org/dist/$($selected.version)/$name";
+        ChecksumsUrl = "https://nodejs.org/dist/$($selected.version)/SHASUMS256.txt" }
+}
+
+function Get-OmniNodeChecksum {
+    param([string]$Checksums, [string]$Name)
+    $matches = @($Checksums -split '\r?\n' | ForEach-Object {
+        $entry = [regex]::Match($_, '^([a-fA-F0-9]{64})\s+\*?' + [regex]::Escape($Name) + '$')
+        if ($entry.Success) { $entry.Groups[1].Value.ToLowerInvariant() }
+    })
+    if ($matches.Count -ne 1) { throw ((Get-OmniInstallText 'dependencyMetadata') -f 'Node.js LTS') }
+    return $matches[0]
+}
+
+function Get-OmniDotnetInstaller {
+    param($Metadata)
+    $version = $Metadata.'latest-runtime'
+    if ($Metadata.'channel-version' -cne '10.0' -or $version -cnotmatch '^10\.0\.\d+$') {
+        throw ((Get-OmniInstallText 'dependencyMetadata') -f '.NET 10')
+    }
+    $releases = @($Metadata.releases | Where-Object { $_.runtime.version -ceq $version })
+    if ($releases.Count -ne 1) { throw ((Get-OmniInstallText 'dependencyMetadata') -f '.NET 10') }
+    $files = @($releases[0].runtime.files | Where-Object { $_.rid -ceq 'win-x64' -and $_.name -ceq 'dotnet-runtime-win-x64.exe' })
+    $url = "https://builds.dotnet.microsoft.com/dotnet/Runtime/$version/dotnet-runtime-$version-win-x64.exe"
+    if ($files.Count -ne 1 -or $files[0].url -cne $url -or $files[0].hash -notmatch '^[a-fA-F0-9]{128}$') {
+        throw ((Get-OmniInstallText 'dependencyMetadata') -f '.NET 10')
+    }
+    return [pscustomobject]@{ Version = $version; Name = "dotnet-runtime-$version-win-x64.exe";
+        Url = $url; Hash = $files[0].hash.ToLowerInvariant() }
+}
+
+function Test-OmniNodePrerequisite {
+    $ErrorActionPreference = 'Continue'
+    try {
+        $node = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $npm = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $node -or $null -eq $npm) { return $false }
+        $probe = & $node.Source -p "JSON.stringify({version:process.versions.node,arch:process.arch,platform:process.platform})" 2>$null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        $data = ConvertFrom-Json -InputObject ($probe -join "`n") -ErrorAction Stop
+        if ($data.version -notmatch '^\d+\.\d+\.\d+' -or [version]$data.version -lt [version]'20.0.0' -or
+            $data.arch -cne 'x64' -or $data.platform -cne 'win32') { return $false }
+        $npmVersion = & $npm.Source --version 2>$null
+        return $LASTEXITCODE -eq 0 -and "$npmVersion" -match '^\d+\.\d+\.\d+'
+    } catch { return $false }
+}
+
+function Test-OmniX64Executable {
+    param([string]$Path)
+    $reader = $null
+    try {
+        $reader = New-Object IO.BinaryReader([IO.File]::OpenRead($Path))
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5a4d) { return $false }
+        $reader.BaseStream.Position = 0x3c
+        $offset = $reader.ReadInt32()
+        if ($offset -lt 64 -or $offset -gt $reader.BaseStream.Length - 6) { return $false }
+        $reader.BaseStream.Position = $offset
+        return $reader.ReadUInt32() -eq 0x4550 -and $reader.ReadUInt16() -eq 0x8664
+    } catch { return $false }
+    finally { if ($null -ne $reader) { $reader.Dispose() } }
+}
+
+function Test-OmniDotnetPrerequisite {
+    $ErrorActionPreference = 'Continue'
+    try {
+        $dotnet = Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $dotnet -or -not (Test-OmniX64Executable $dotnet.Source)) { return $false }
+        $runtimes = & $dotnet.Source --list-runtimes 2>$null
+        return $LASTEXITCODE -eq 0 -and @($runtimes -match '^Microsoft\.NETCore\.App 10\.\d+\.\d+\s').Count -gt 0
+    } catch { return $false }
+}
+
+function Update-OmniProcessPath {
+    # Read registry changes made by the official installers without dropping custom session entries.
+    $programFiles = $env:ProgramW6432
+    if (-not $programFiles) { $programFiles = $env:ProgramFiles }
+    $paths = @((Join-Path $programFiles 'nodejs'), (Join-Path $programFiles 'dotnet'))
+    $paths += [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
+    $paths += [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+    $paths += $env:PATH -split ';'
+    $seen = @{}
+    $env:PATH = (@($paths | Where-Object {
+        if (-not $_ -or $seen.ContainsKey($_)) { return $false }
+        $seen[$_] = $true
+        return $true
+    })) -join ';'
+}
+
+function Invoke-OmniDependencyInstaller {
+    param([string]$Name, [string]$Path)
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid') { throw ((Get-OmniInstallText 'dependencySignature') -f $Name) }
+    $executable = $Path
+    $arguments = @('/install', '/quiet', '/norestart')
+    if ([IO.Path]::GetExtension($Path) -ieq '.msi') {
+        $executable = Join-Path $env:SYSTEMROOT 'System32/msiexec.exe'
+        $arguments = @('/i', $Path, '/quiet', '/norestart')
+    }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try { $admin = (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) }
+    finally { $identity.Dispose() }
+    $options = @{ FilePath = $executable; ArgumentList = (($arguments | ForEach-Object { ConvertTo-OmniNativeArgument $_ }) -join ' ');
+        Wait = $true; PassThru = $true; WindowStyle = 'Hidden'; ErrorAction = 'Stop' }
+    if (-not $admin) {
+        Write-Host ((Get-OmniInstallText 'administratorConsent') -f $Name)
+        $options.Verb = 'RunAs'
+    }
+    $process = Start-Process @options
+    try {
+        if ($process.ExitCode -notin @(0, 3010)) { throw ((Get-OmniInstallText 'dependencyFailed') -f $Name, $process.ExitCode) }
+    } finally { $process.Dispose() }
+}
+
+function Install-OmniNodePrerequisite {
+    param([string]$Staging)
+    $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -TimeoutSec 60
+    $plan = Get-OmniNodeInstaller @($index)
+    $sums = Join-Path $Staging 'node-SHASUMS256.txt'
+    Save-OmniDownload $plan.ChecksumsUrl $sums
+    $hash = Get-OmniNodeChecksum (Get-Content -LiteralPath $sums -Raw) $plan.Name
+    $file = Join-Path $Staging $plan.Name
+    Save-OmniDownload $plan.Url $file 128MB
+    Assert-OmniFile $file $hash
+    Write-Host ((Get-OmniInstallText 'dependencyInstall') -f "Node.js LTS $($plan.Version)")
+    Invoke-OmniDependencyInstaller 'Node.js LTS' $file
+}
+
+function Install-OmniDotnetPrerequisite {
+    param([string]$Staging)
+    $metadata = Invoke-RestMethod -Uri 'https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json' -TimeoutSec 60
+    $plan = Get-OmniDotnetInstaller $metadata
+    $file = Join-Path $Staging $plan.Name
+    Save-OmniDownload $plan.Url $file 128MB
+    Assert-OmniFile $file $plan.Hash 0 SHA512
+    Write-Host ((Get-OmniInstallText 'dependencyInstall') -f ".NET Runtime $($plan.Version)")
+    Invoke-OmniDependencyInstaller '.NET 10' $file
+}
+
+function Initialize-OmniPrerequisites {
+    param([string]$Staging)
+    if (-not (Test-OmniNodePrerequisite)) {
+        Install-OmniNodePrerequisite $Staging
+        Update-OmniProcessPath
+        if (-not (Test-OmniNodePrerequisite)) { throw ((Get-OmniInstallText 'dependencyUnavailable') -f 'Node.js / npm') }
+    }
+    if (-not (Test-OmniDotnetPrerequisite)) {
+        Install-OmniDotnetPrerequisite $Staging
+        Update-OmniProcessPath
+        if (-not (Test-OmniDotnetPrerequisite)) { throw ((Get-OmniInstallText 'dependencyUnavailable') -f '.NET 10 x64') }
+    }
+}
+
+function Get-OmniUpdatedUserPath {
+    param([string]$Current, [string]$Machine, [string]$Directory)
+    $expanded = [Environment]::ExpandEnvironmentVariables($Current)
+    if ((($Machine + ';' + $expanded) -split ';') -icontains $Directory) { return $Current }
+    if (-not $Current.TrimEnd(';')) { return $Directory }
+    return $Current.TrimEnd(';') + ';' + $Directory
+}
+
+function Add-OmniUserCommandPath {
+    param([string]$Directory)
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    try {
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        $original = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($key.GetValueNames() -contains 'Path') { $kind = $key.GetValueKind('Path') }
+        $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        $updated = Get-OmniUpdatedUserPath $original $machine $Directory
+        if ($updated -ceq $original) { return }
+        # The API broadcasts WM_SETTINGCHANGE. Preserve the original registry value kind as well.
+        [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
+        $key.SetValue('Path', $updated, $kind)
+    } finally { $key.Dispose() }
+}
+
 function Install-OmniCore {
     [CmdletBinding()]
-    param([ValidateSet('Stable', 'Preview')][string]$Channel = 'Stable', [string]$Version, [string]$Prefix)
+    param([ValidateSet('Stable', 'Preview')][string]$Channel = 'Stable', [string]$Version, [string]$Prefix,
+        [switch]$NoPathPersistence)
     $ErrorActionPreference = 'Stop'
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw (Get-OmniInstallText 'windowsRequired') }
-    Get-Command node, npm.cmd, dotnet -ErrorAction Stop | Out-Null
-    $nodeVersion = & node -p "process.versions.node"
-    if ($LASTEXITCODE -ne 0 -or [int]($nodeVersion -split '\.')[0] -lt 20) { throw (Get-OmniInstallText 'nodeRequired') }
-    $architecture = & node -p "process.platform + '-' + process.arch"
-    if ($LASTEXITCODE -ne 0 -or $architecture -cne 'win32-x64') { throw (Get-OmniInstallText 'archRequired') }
-    $runtimes = & dotnet --list-runtimes
-    if ($LASTEXITCODE -ne 0 -or -not ($runtimes -match '^Microsoft\.NETCore\.App 10\.')) { throw (Get-OmniInstallText 'runtimeRequired') }
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitOperatingSystem) {
+        throw (Get-OmniInstallText 'windowsRequired')
+    }
     if ($Version -and $Version -cnotmatch '^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw (Get-OmniInstallText 'versionInvalid') }
 
     $tls = [Net.ServicePointManager]::SecurityProtocol
@@ -342,24 +561,29 @@ function Install-OmniCore {
         Assert-OmniFile $archive $package.sha256 ([long]$package.size)
         Invoke-OmniPublisherVerification $gh $archive $manifest.commitSha $release.tag_name $staging
 
+        # Verify the selected OmniCore package before installing any missing prerequisite.
+        Initialize-OmniPrerequisites $staging
+        $npmExecutable = (Get-Command npm.cmd -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+
         $prefixArgs = @()
         if ($Prefix) { $prefixArgs = @('--prefix', [IO.Path]::GetFullPath($Prefix)) }
         Write-Host ((Get-OmniInstallText 'installing') -f $manifest.version)
         # No lifecycle script, source compilation, Git checkout or provider request is involved.
         $ErrorActionPreference = 'Continue'
-        & npm.cmd install --global --ignore-scripts --no-audit --no-fund @prefixArgs $archive
+        & $npmExecutable install --global --ignore-scripts --no-audit --no-fund @prefixArgs $archive
         $installExit = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
         if ($installExit -ne 0) { throw ((Get-OmniInstallText 'npmFailed') -f $installExit) }
-        $commandDirectory = & npm.cmd prefix --global @prefixArgs
+        $commandDirectory = & $npmExecutable prefix --global @prefixArgs
         if ($LASTEXITCODE -ne 0) { throw (Get-OmniInstallText 'prefixMissing') }
         $commandDirectory = "$commandDirectory".Trim()
         $installed = Get-Content -LiteralPath (Join-Path $commandDirectory 'node_modules/omnicore-cli/package.json') -Raw | ConvertFrom-Json
         if ($installed.name -cne 'omnicore-cli' -or $installed.version -cne $manifest.version) { throw (Get-OmniInstallText 'installedMismatch') }
         if (($env:PATH -split ';') -inotcontains $commandDirectory) { $env:PATH = $commandDirectory + ';' + $env:PATH }
+        if (-not $NoPathPersistence) { Add-OmniUserCommandPath $commandDirectory }
         Write-Host ((Get-OmniInstallText 'installed') -f $manifest.version)
         Write-Host ((Get-OmniInstallText 'command') -f (Join-Path $commandDirectory 'omni.cmd'))
-        if ($Prefix) { Write-Host (Get-OmniInstallText 'customPath') }
+        if ($Prefix -and $NoPathPersistence) { Write-Host (Get-OmniInstallText 'customPath') }
     } finally {
         [Net.ServicePointManager]::SecurityProtocol = $tls
         # Only remove the unique direct child this invocation created beneath the resolved temp directory.

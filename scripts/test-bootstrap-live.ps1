@@ -46,7 +46,7 @@ try {
             if ($npmExit -ne 0) { throw "Direct npm installation failed: $npmExit" }
         } else {
             # Match the README's downloaded-script invocation: no PSScriptRoot or clone is available.
-            & ([scriptblock]::Create([IO.File]::ReadAllText($bootstrap))) -Version $Version -Prefix $prefix
+            & ([scriptblock]::Create([IO.File]::ReadAllText($bootstrap))) -Version $Version -Prefix $prefix -NoPathPersistence
         }
         if (Test-Path -LiteralPath (Join-Path $root 'source-build-attempt.txt')) { throw 'A source tool was invoked.' }
         $package = Join-Path $prefix 'node_modules/omnicore-cli'

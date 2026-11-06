@@ -6,27 +6,32 @@
 
 ## Instalación directa desde GitHub
 
-En **Windows x64**, necesitas **Node.js 20+ con npm** y el **runtime .NET 10 x64**.
+En **Windows x64**, el instalador PowerShell deja todo listo: detecta Node.js con
+npm y el runtime .NET 10 x64; si faltan o no son compatibles, instala **Node.js LTS**
+y **.NET Runtime 10** desde sus distribuciones oficiales verificadas. Reutiliza las
+versiones compatibles y prepara el `PATH` de esta terminal. Windows puede pedir
+autorización de administrador para instalar las dependencias.
+
 El paquete ya está compilado e incluye OmniDesktop Control: no necesitas clonar el
 repositorio, Git, el SDK de .NET ni Rust. Actualmente la entrega publicada es preview.
 
-**PowerShell — descarga, verifica SHA-256 y attestations e instala la última release publicada:**
+**PowerShell — un comando para instalar dependencias y OmniCore:**
 
 ```powershell
 & ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/juancgomezm-s/OmniCore/main/install.ps1'))) -Channel Preview
-omni.cmd
 ```
 
-**npm — instala directamente el paquete de la versión publicada desde GitHub:**
+**npm — alternativa si ya tienes Node.js 20+ con npm y el runtime .NET 10 x64:**
 
 ```powershell
 npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.4/omnicore-cli-0.1.1-rc.4-win-x64.tgz
-omni.cmd
 ```
 
-La alternativa npm usa el archivo de una versión concreta; el instalador PowerShell
-añade la verificación del publicador antes de instalar. Ambos registran el comando
-`omni` con npm. Para elegir una versión o un destino en PowerShell, añade
+Después puedes abrir la aplicación con **`omni.cmd`**, en la misma terminal.
+El instalador PowerShell verifica hashes y firmas de las dependencias, las
+attestations del paquete de OmniCore y guarda la carpeta del comando en el `PATH`
+del usuario para los siguientes inicios. La alternativa npm usa el archivo de una
+versión concreta y requiere las dependencias instaladas. Para elegir una versión o un destino en PowerShell, añade
 `-Version 0.1.1-rc.4` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
 El canal estable se selecciona con `-Channel Stable` cuando haya una release estable publicada.
 
