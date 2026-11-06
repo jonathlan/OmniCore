@@ -2084,16 +2084,14 @@ public sealed partial class TuiApp
         var bodyHeight = interaction.Kind == "MemoryPromotion" ? 8 : interaction.Kind == "ModelRouteConsent" ? 4 : 2;
         var overlay = OverlayFrame(interaction.Title, 5 + bodyHeight + interaction.Options.Count);
         _activeInteraction = interaction;
-        if (interaction.Kind == "MemoryPromotion")
-        {
-            // Selectable, read-only consent text uses the same pinned control as account details.
+        // Permission and recovery details must remain readable even when the subject
+        // wraps beyond the allotted height. Focus still starts on the safe option.
 #pragma warning disable CS0618
-            overlay.Add(new TextView { Id = "memory-promotion-content", X = 2, Y = 2, Width = Dim.Fill(2), Height = bodyHeight,
-                ReadOnly = true, WordWrap = true, ScrollBars = true, Text = interaction.Subject });
-#pragma warning restore CS0618
-        }
-        else overlay.Add(new Label { X = 2, Y = 2, Width = Dim.Fill(2), Height = bodyHeight,
+        overlay.Add(new TextView { Id = interaction.Kind == "MemoryPromotion" ? "memory-promotion-content" : "interaction-content",
+            X = 2, Y = 2, Width = Dim.Fill(2), Height = bodyHeight,
+            ReadOnly = true, WordWrap = true, ScrollBars = true,
             Text = interaction.Subject.Length == 0 ? interaction.Kind : interaction.Subject });
+#pragma warning restore CS0618
         Button? defaultButton = null;
         for (var index = 0; index < interaction.Options.Count; index++)
         {
@@ -2201,9 +2199,10 @@ public sealed partial class TuiApp
     private FrameView OverlayFrame(string title, int height)
     {
         HideCommandHelper();
-        var frame = new FrameView { Id = "omni-panel", X = Pos.Center(), Y = Pos.Center(), Width = Dim.Percent(80),
-            Height = Math.Min(height + 2, Math.Max(6, (_window?.Frame.Height ?? 25) - 2)),
+        var frame = new TuiOverlayFrame { Id = "omni-panel", X = Pos.Center(), Y = Pos.Center(), Width = Dim.Percent(80),
+            Height = Dim.Func(_ => Math.Min(height + 2, Math.Max(1, (_window?.Viewport.Height ?? 25) - 2))),
             Title = " " + title + " ", BorderStyle = LineStyle.None, CanFocus = true };
+        frame.ViewportSettings &= ~ViewportSettingsFlags.Transparent;
         frame.Add(new Label { Id = "omni-menu-title", X = 2, Y = 0, Width = Dim.Fill(2), Height = 1, Text = title });
         ApplyTheme(frame);
         return frame;
@@ -2237,7 +2236,7 @@ public sealed partial class TuiApp
                 || view.Id?.StartsWith("model-catalog-", StringComparison.Ordinal) == true
                 || view.Id is "policy-preferences" or "security-preferences" or "security-preferences-confirm"
                     or "diagnostics-preferences" or "diagnostics-confirm" or "command-preferences" or "mapping-preferences")) surface = PreferencesSurface;
-        else if (view.Id is "omni-panel" or "provider-connections" or "openrouter-credits") surface = "#202C3B";
+        else if (view is TuiOverlayFrame || view.Id is "omni-panel" or "provider-connections" or "openrouter-credits") surface = "#202C3B";
         else if (view.Id == "omni-menu-title") surface = MenuSurface;
         else if (view.Id is "omni-model-list" or "tools-list" or "session-preferences-list" or "model-catalog-list"
             or "commands-list" or "security-rules" or "security-grants" or "diagnostics-configuration") surface = "#142636";
@@ -3248,13 +3247,16 @@ public sealed partial class TuiApp
         catch (System.Text.Json.JsonException) { }
         message = _localization.ResolveWire(message);
         var lines = message.Replace("\r\n", "\n").Split('\n');
-        var available = Math.Max(1, (_window.Frame.Height > 0 ? _window.Frame.Height : 25) - 9);
-        var visible = lines.Take(available).ToArray();
-        if (lines.Length > available) visible[^1] = "…";
-        var frame = OverlayFrame(title, Math.Max(6, visible.Length + 5));
-        frame.Add(new Label { X = 2, Y = 2, Width = Dim.Fill(2), Height = visible.Length, Text = string.Join("\n", visible) });
-        var ok = new Button { X = Pos.AnchorEnd(12), Y = Pos.AnchorEnd(2), Text = _localization.Resolve("shell.ok") };
-        ok.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); }; frame.Add(ok); ApplyTheme(frame); _overlay = frame; _window.Add(frame); frame.SetFocus();
+        var columns = Math.Max(1, _window.Viewport.Width * 80 / 100 - 4);
+        var wrappedLines = lines.Sum(line => Math.Max(1, (line.Length + columns - 1) / columns));
+        var frame = OverlayFrame(title, Math.Max(6, wrappedLines + 5));
+        frame.Id = "message-dialog";
+#pragma warning disable CS0618 // Pinned Terminal.Gui read-only, scrollable notice body.
+        var body = new TextView { Id = "message-content", X = 2, Y = 2, Width = Dim.Fill(2), Height = Dim.Fill(4),
+            Text = message, ReadOnly = true, WordWrap = true, ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar };
+#pragma warning restore CS0618
+        var ok = new Button { Id = "message-close", X = Pos.AnchorEnd(12), Y = Pos.AnchorEnd(2), Text = _localization.Resolve("shell.ok") };
+        ok.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); }; frame.Add(body, ok); ApplyTheme(frame); _overlay = frame; _window.Add(frame); body.SetFocus();
     }
 
     private void CloseOverlay()

@@ -1,7 +1,8 @@
 # Opt-in acceptance of a real published package; never install into the user's prefix.
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')][string]$Version,
-    [ValidateSet('PowerShell', 'Npm')][string]$Method = 'PowerShell'
+    [ValidateSet('PowerShell', 'Npm')][string]$Method = 'PowerShell',
+    [ValidatePattern('^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')][string]$UpgradeTo
 )
 $ErrorActionPreference = 'Stop'
 $bootstrap = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../install.ps1'))
@@ -57,7 +58,41 @@ try {
         }
         & (Join-Path $prefix 'omni.cmd') --help
         if ($LASTEXITCODE -ne 0) { throw 'Installed command failed.' }
+        $updateStatus = $null
+        if ($UpgradeTo) {
+            $sentinels = @{}
+            foreach ($directory in @($env:OMNICORE_CONFIG_DIR, $env:OMNICORE_DATA_DIR, (Join-Path $root 'workspace'))) {
+                $path = Join-Path $directory 'bootstrap-preservation-fixture.txt'
+                [IO.File]::WriteAllText($path, 'Private fixture: preserve across package update.')
+                $sentinels[$path] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            }
+            & (Join-Path $prefix 'omni.cmd') update check $UpgradeTo --channel preview
+            if ($LASTEXITCODE -ne 0) { throw 'Public update check failed.' }
+            & (Join-Path $prefix 'omni.cmd') update apply $UpgradeTo --channel preview --yes
+            if ($LASTEXITCODE -ne 0) { throw 'Public update preparation failed.' }
+            $statePath = Join-Path $env:OMNICORE_DATA_DIR 'updates/state.json'
+            $deadline = [DateTime]::UtcNow.AddMinutes(3)
+            do {
+                if (Test-Path -LiteralPath $statePath) {
+                    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+                    $updateStatus = $state.status
+                    if ($updateStatus -in @('Failed', 'Unknown')) { throw "Update stopped: $updateStatus ($($state.detail)). No retry was attempted." }
+                    if ($updateStatus -eq 'Succeeded') { break }
+                }
+                Start-Sleep -Seconds 2
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if ($updateStatus -ne 'Succeeded') { throw 'Update outcome was not confirmed. Do not retry automatically.' }
+            $identity = Get-Content -LiteralPath (Join-Path $package 'package.json') -Raw | ConvertFrom-Json
+            if ($identity.version -cne $UpgradeTo.TrimStart('v')) { throw 'Update activated the wrong package version.' }
+            foreach ($path in $sentinels.Keys) {
+                if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -cne $sentinels[$path]) { throw 'Update modified data outside the package.' }
+            }
+            & (Join-Path $prefix 'omni.cmd') --help
+            if ($LASTEXITCODE -ne 0) { throw 'Updated command failed.' }
+        }
         $receipt = [ordered]@{ version = $identity.version; method = $Method; prefix = $prefix; commandExitCode = 0;
+            originalVersion = $Version.TrimStart('v'); updateStatus = $updateStatus;
+            preservedFixtureData = [bool]$UpgradeTo;
             gitOrRustInvoked = $false; userPrefixModified = $false; providerCredentialsPassed = $false;
             nativeDesktopIncluded = $true; directoryWithSpaces = $true }
         $receipt | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'receipt.json') -Encoding UTF8
