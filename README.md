@@ -4,6 +4,32 @@
 
 [![CI de Main](https://github.com/juancgomezm-s/OmniCore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juancgomezm-s/OmniCore/actions/workflows/ci.yml)
 
+## Instalación directa desde GitHub
+
+En **Windows x64**, necesitas **Node.js 20+ con npm** y el **runtime .NET 10 x64**.
+El paquete ya está compilado e incluye OmniDesktop Control: no necesitas clonar el
+repositorio, Git, el SDK de .NET ni Rust. Actualmente la entrega publicada es preview.
+
+**PowerShell — descarga, verifica SHA-256 y attestations e instala la última release publicada:**
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/juancgomezm-s/OmniCore/main/install.ps1'))) -Channel Preview
+omni.cmd
+```
+
+**npm — instala directamente el paquete de la versión publicada desde GitHub:**
+
+```powershell
+npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.4/omnicore-cli-0.1.1-rc.4-win-x64.tgz
+omni.cmd
+```
+
+La alternativa npm usa el archivo de una versión concreta; el instalador PowerShell
+añade la verificación del publicador antes de instalar. Ambos registran el comando
+`omni` con npm. Para elegir una versión o un destino en PowerShell, añade
+`-Version 0.1.1-rc.4` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
+El canal estable se selecciona con `-Channel Stable` cuando haya una release estable publicada.
+
 OmniCore es un runtime **local-first en C#/.NET 10** para trabajar sobre repositorios con modelos locales o de frontera. Su primer cliente es el CLI `omni`; Protocol y Client también están preparados para consumidores como OmniCoder.
 
 Permite conversar con un modelo, explorar un proyecto, planificar cambios, editar varios archivos, ejecutar validaciones y retomar el trabajo después de una interrupción. En Windows incluye OmniDesktop Control para observar y operar una ventana elegida. La conversación conserva su historial, contexto y evidencia al cambiar de modelo.
@@ -321,7 +347,7 @@ dotnet build OmniCore.slnx
 dotnet test --solution OmniCore.slnx
 ```
 
-### Instalar `omni` en Windows
+### Instalación de desarrollo desde un clon (Windows)
 
 Las pruebas del host de extensiones ejecutables requieren Node LTS 22+ y el SDK
 TypeScript compilado con los pasos anteriores. La aplicación y los paquetes
@@ -381,6 +407,10 @@ su subcarpeta `bin` al `PATH`. Conserva también `dotnet` en el `PATH`:
 esta distribución npm necesita el **runtime .NET 10** al ejecutarse.
 
 ### Actualizar la aplicación instalada
+
+Si instalaste directamente desde GitHub, usa los comandos `omni update` descritos
+más abajo o repite el instalador del inicio; cierra OmniCore antes de reinstalar.
+El clon sólo es necesario para el siguiente recorrido de desarrollo.
 
 Cierra las instancias de OmniCore que usan la instalación que vas a actualizar.
 En un clon limpio de la rama `main` del repositorio oficial, puedes descargar e
