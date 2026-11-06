@@ -81,6 +81,27 @@ manteniendo sus comprobaciones de navegación, contenido, idioma y borrador.
 La evidencia local se conserva en
 `artifacts/tui-audit-20261106/` y `artifacts/tui-audit-*.log` del checkout de trabajo.
 
+### Finalización de la CI Windows
+
+La primera ejecución completa Linux aprobó 6.315 casos (6.245 correctos y 70
+omisiones). Windows alcanzó el límite del job de 65 minutos mientras seguía
+publicando resultados. El registro mostró además el fallo del emisor PowerShell
+de `Launching_with_discarded_output_does_not_block_a_server_that_logs_heavily`.
+Ese fixture no distinguía un problema del intérprete de un bloqueo de tubería.
+Ahora el ejecutable .NET de pruebas emite los mismos 4 MB sin salto de línea en
+cada stream, vacía ambos y sólo entonces escribe la señal. El padre también
+detecta una salida prematura. La clase de supervisión aprueba 21/21 localmente.
+No se cambia el drenaje ni el entorno permitido del runtime de producción.
+
+Windows divide su suite en dos máquinas aisladas, conservando la ejecución serial
+dentro de cada una: `TuiWiringTests` y su complemento exacto. Arquitectura se
+ejecuta completa en Core; Linux conserva la suite íntegra sin filtro. La
+comparación del descubrimiento local acredita unión exacta y cero duplicados:
+6.247 casos del ensamblado Core, distribuidos en 583 de TUI y 5.664 del resto.
+Los recuentos definitivos de ejecución se conservan en los reportes de CI.
+No se omiten pruebas ni se cambian permisos del producto; los artifacts ConPTY
+tienen nombres distintos para ambos grupos.
+
 La nueva entrega preview usa el pipeline de release existente, paquete y manifest
 con attestations vinculadas al tag y commit de Main. El instalador PowerShell
 descubre la entrega publicada del canal; npm en README apunta a la versión exacta.

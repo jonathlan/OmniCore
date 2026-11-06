@@ -317,15 +317,17 @@ public sealed class LocalServerTests
         try
         {
             var runtime = OmniCore.Execution.SystemProcessRuntime.Instance();
-            var handle = runtime.Launch(new ProcessLaunch("powershell.exe",
-                ["-NoProfile", "-Command", "[Console]::Out.Write('x' * 4000000); [Console]::Error.Write('y' * 4000000); "
-                    + "New-Item -ItemType File -Path '" + flag + "' | Out-Null; Start-Sleep -Seconds 30"],
+            var fixture = Path.Combine(AppContext.BaseDirectory, "OmniCore.SandboxTestProcess.exe");
+            Assert.True(File.Exists(fixture), "falta el emisor compilado de la prueba");
+            var handle = runtime.Launch(new ProcessLaunch(fixture, ["discard-output-flood", flag],
                 "", new Dictionary<string, string>(), false) { DiscardOutput = true }, CancellationToken.None);
             try
             {
                 var deadline = DateTime.UtcNow.AddSeconds(60);
-                while (!File.Exists(flag) && DateTime.UtcNow < deadline) Thread.Sleep(100);
-                Assert.True(File.Exists(flag), "el proceso se bloqueó escribiendo en una tubería que nadie drena");
+                while (!File.Exists(flag) && runtime.IsAlive(handle) && DateTime.UtcNow < deadline) Thread.Sleep(100);
+                Assert.True(File.Exists(flag), runtime.IsAlive(handle)
+                    ? "el proceso se bloqueó escribiendo en una tubería que nadie drena"
+                    : "el emisor terminó antes de completar stdout y stderr");
             }
             finally { runtime.CancelTree(handle); }
         }

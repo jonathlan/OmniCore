@@ -23,10 +23,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            scope: full
+          - os: windows-latest
+            scope: core
+          - os: windows-latest
+            scope: tui
+    name: test (${{ matrix.os }}, ${{ matrix.scope }})
     runs-on: ${{ matrix.os }}
-    # The Windows suite has taken about 41 minutes, before setup, SDK/NPM steps and build.
-    # The expanded serial suite exceeded 25 minutes on Linux while tests were still passing.
+    # Windows exceeded 65 minutes while still passing tests. Complementary filters
+    # run the entire suite on two isolated VMs, keeping execution serial in each.
+    # Linux retains its full, unfiltered suite.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 65 || 45 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -81,7 +89,7 @@ jobs:
       - name: Validate regression measurement and comparison receipts
         run: python -m unittest discover -s tests -p "test_regression_*.py"
       - name: Windows crash recovery, Git, isolation and managed-server regression checks
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.scope == 'core'
         shell: bash
         run: dotnet test --project tests/OmniCore.Tests/OmniCore.Tests.csproj --no-build --no-restore --parallel none --output Detailed --no-progress --filter 'FullyQualifiedName~WindowsWalRecoveryTests|FullyQualifiedName~Unread_ack_reconnect_lookup_and_unknown_reservation|FullyQualifiedName~Crash_receipt_recovery_stress|FullyQualifiedName~Configured_test_gate_reworks_in_act_loop_when_skill_validator_activation_is_unavailable|FullyQualifiedName~Strong_process_reads_allowed_workspace_but_not_outside_file|FullyQualifiedName~Managed_fixture_accepts_authenticated_readiness|FullyQualifiedName~Managed_local_server_is_launched|FullyQualifiedName~Native_stdio_orq_workflow_publishes_real_owned_implementation_worktree_and_passive_queries_resolve_it|FullyQualifiedName~Two_successive_permission_choices_resume_the_same_run_and_turn_once_each|FullyQualifiedName~Accepted_permission_choice_recovers_from_new_runtime_and_store_after_orderly_cancellation|FullyQualifiedName~Accepted_plan_approval_choice_recovers_from_new_runtime_and_store' < /dev/null
       - name: Verify owned Strong LSP before the broad Linux regression
@@ -93,8 +101,10 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = 'Linux' ]; then
             sh scripts/with-linux-secret-service.sh dotnet test --solution OmniCore.slnx --no-build --no-restore --max-parallel-test-modules 1 --parallel none --output Detailed --no-progress < /dev/null
+          elif [ '${{ matrix.scope }}' = 'tui' ]; then
+            dotnet test --project tests/OmniCore.Tests/OmniCore.Tests.csproj --no-build --no-restore --parallel none --output Detailed --no-progress --filter 'FullyQualifiedName~OmniCore.Tests.TuiWiringTests' < /dev/null
           else
-            dotnet test --solution OmniCore.slnx --no-build --no-restore --max-parallel-test-modules 1 --parallel none --output Detailed --no-progress < /dev/null
+            dotnet test --solution OmniCore.slnx --no-build --no-restore --max-parallel-test-modules 1 --parallel none --output Detailed --no-progress --filter 'FullyQualifiedName!~OmniCore.Tests.TuiWiringTests' < /dev/null
           fi
       - name: Restore Windows NUL permissions and temp settings
         if: always() && runner.os == 'Windows' && env.OMNICORE_CI_NUL_PREPARED == 'true'
@@ -103,7 +113,7 @@ jobs:
         if: always() && runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: windows-conpty-prerequisite
+          name: windows-conpty-prerequisite-${{ matrix.scope }}
           path: ${{ runner.temp }}/omnicore-conpty-prerequisite/*.log
           if-no-files-found: ignore
 

@@ -44,6 +44,21 @@ if (args.Length == 1 && args[0] == "stream")
     return 42;
 }
 
+if (args.Length == 2 && args[0] == "discard-output-flood")
+{
+    // No shell, modules or console formatting: exceed both pipe buffers with
+    // unterminated byte streams before publishing readiness to the parent.
+    var stdout = Console.OpenStandardOutput();
+    var stderr = Console.OpenStandardError();
+    stdout.Write(Enumerable.Repeat((byte)'x', 4_000_000).ToArray());
+    stdout.Flush();
+    stderr.Write(Enumerable.Repeat((byte)'y', 4_000_000).ToArray());
+    stderr.Flush();
+    File.WriteAllText(args[1], "ready");
+    await Task.Delay(Timeout.InfiniteTimeSpan);
+    return 0;
+}
+
 if (args.Length == 3 && args[0] == "managed-llama-fixture")
 {
     var port = int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture);
