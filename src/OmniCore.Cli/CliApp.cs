@@ -133,7 +133,7 @@ public sealed partial class CliApp
         }
 
         if (HumanCommandAliases.CanonicalName(command.TrimStart('/')) == "initialize") return RunInitialize(args);
-        if (command == "update") return RunUpdateAsync(args);
+        if (command is "update" or "-update" or "--update") return RunUpdateAsync(args);
         if (command is "pet" or "/pet")
         {
             if (args.Length > 1 && args[1] is "chat" or "sessions" or "sesiones" or "alerts" or "avisos" or "memory" or "memoria" or "model" or "modelo" or "settings" or "usage" or "consumo")

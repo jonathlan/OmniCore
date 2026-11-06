@@ -111,9 +111,14 @@ async function waitForTerminalState(statePath, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    // The helper writes the terminal receipt before its finally block releases
-    // the owner lock. Observe both before inspecting cleanup or deleting fixtures.
-    if (terminal.has(state.status) && !fs.existsSync(statePath + '.helper.lock')) return state;
+    // The receipt and owner-lock release precede process exit. Windows can still
+    // hold the fixture's working directory until that detached helper exits.
+    let helperAlive = false;
+    if (Number.isSafeInteger(state.helperPid) && state.helperPid > 0) {
+      try { process.kill(state.helperPid, 0); helperAlive = true; }
+      catch (error) { helperAlive = error.code !== 'ESRCH'; }
+    }
+    if (terminal.has(state.status) && !fs.existsSync(statePath + '.helper.lock') && !helperAlive) return state;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error('timed out waiting for recovery helper to finish');

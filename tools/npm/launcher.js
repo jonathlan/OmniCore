@@ -52,6 +52,17 @@ function run(args = process.argv.slice(2), options = {}) {
     }
   }
 
+  const manual = require('./manual-update');
+  if (manual.eligible(args)) {
+    const completion = manual.runManual(dllPath, args, {
+      spawn: spawnProcess, process: parentProcess, stderr, ...options.manualUpdateOptions
+    });
+    completion.then(code => { parentProcess.exitCode = code; }, error => {
+      stderr.write(`${error.code ?? 'update_launch_failed'}\n`); parentProcess.exitCode = 1;
+    });
+    return completion;
+  }
+
   const startup = require('./startup-updates');
   if (parentProcess.env && (parentProcess === process || options.startupUpdates === true || options.startupOptions)
       && startup.eligible(args) && options.startupUpdates !== false) {

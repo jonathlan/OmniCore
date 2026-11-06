@@ -169,10 +169,12 @@ public sealed class GitHubReleasePublisherVerifier : IReleasePublisherVerifier, 
     private async Task DownloadBundle(string tag, string name, string destination, CancellationToken token, int maximumBytes = MaximumBundleBytes)
     {
         var uri = new Uri("https://github.com/" + GitHubReleaseUpdateChecker.Repository + "/releases/download/"
-            + Uri.EscapeDataString(tag) + "/" + Uri.EscapeDataString(name));
+            + Uri.EscapeDataString(tag) + "/" + Uri.EscapeDataString(name)
+            + "?omnicore_download=" + Guid.NewGuid().ToString("N"));
         for (var redirect = 0; redirect <= 3; redirect++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true, NoStore = true };
             request.Headers.UserAgent.ParseAdd("OmniCore-Updater/1.0");
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Redirect or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)

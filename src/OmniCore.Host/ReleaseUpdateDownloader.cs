@@ -33,6 +33,20 @@ public sealed class ReleaseUpdateDownloader : IDisposable, IReleaseUpdateDownloa
     public async Task<ReleaseUpdateDownloadResult> DownloadAsync(ReleaseUpdateAsset asset, string tag,
         string destinationDirectory, string expectedVersion, CancellationToken cancellationToken = default)
     {
+        var result = await DownloadCoreAsync(asset, tag, destinationDirectory, expectedVersion,
+            browserDownload: false, cancellationToken).ConfigureAwait(false);
+        // One alternate official transport only. Never retry integrity, origin, rate-limit
+        // or staging failures, and never retry an installation effect.
+        if (result.Status is ReleaseUpdateDownloadStatus.NetworkError or ReleaseUpdateDownloadStatus.Offline
+            || result.DiagnosticCode == "release_asset_not_found")
+            return await DownloadCoreAsync(asset, tag, destinationDirectory, expectedVersion,
+                browserDownload: true, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<ReleaseUpdateDownloadResult> DownloadCoreAsync(ReleaseUpdateAsset asset, string tag,
+        string destinationDirectory, string expectedVersion, bool browserDownload, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(asset);
         ArgumentException.ThrowIfNullOrWhiteSpace(tag);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDirectory);
@@ -56,7 +70,11 @@ public sealed class ReleaseUpdateDownloader : IDisposable, IReleaseUpdateDownloa
         var temporaryPath = finalPath + "." + Guid.NewGuid().ToString("N") + ".part";
         try
         {
-            var current = new Uri(ApiRoot, $"repos/{GitHubReleaseUpdateChecker.Repository}/releases/assets/{asset.Id}");
+            var cacheKey = "?omnicore_download=" + Guid.NewGuid().ToString("N");
+            var current = browserDownload
+                ? new Uri("https://github.com/" + GitHubReleaseUpdateChecker.Repository + "/releases/download/"
+                    + Uri.EscapeDataString(tag) + "/" + Uri.EscapeDataString(asset.Name) + cacheKey)
+                : new Uri(ApiRoot, $"repos/{GitHubReleaseUpdateChecker.Repository}/releases/assets/{asset.Id}" + cacheKey);
             for (var redirect = 0; redirect <= MaximumRedirects; redirect++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -76,7 +94,7 @@ public sealed class ReleaseUpdateDownloader : IDisposable, IReleaseUpdateDownloa
                 if (response.StatusCode == HttpStatusCode.NotFound)
                     return new(ReleaseUpdateDownloadStatus.AssetUnavailable, "release_asset_not_found");
                 if (!response.IsSuccessStatusCode)
-                    return new(ReleaseUpdateDownloadStatus.NetworkError, "release_asset_unavailable");
+                    return new(ReleaseUpdateDownloadStatus.NetworkError, "release_asset_http_" + (int)response.StatusCode);
                 if (response.Content.Headers.ContentLength is { } declared && declared != asset.Size)
                     return new(ReleaseUpdateDownloadStatus.SizeMismatch, "release_asset_size_mismatch");
                 var (failure, digest) = await WriteVerifiedAsync(response.Content, temporaryPath, asset, cancellationToken)
@@ -186,6 +204,7 @@ public sealed class ReleaseUpdateDownloader : IDisposable, IReleaseUpdateDownloa
             or "objects.githubusercontent.com" or "github.com"))
             throw new HttpRequestException("release_asset_origin_invalid");
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
         request.Headers.UserAgent.ParseAdd("OmniCore-Update/1.0 (+https://github.com/juancgomezm-s/OmniCore)");
         if (uri.Host == "api.github.com") request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");

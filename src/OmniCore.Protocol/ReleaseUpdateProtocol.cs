@@ -1,6 +1,6 @@
 namespace OmniCore.Protocol;
 
-/// <summary>Manual release-check channel. Preview is never selected implicitly.</summary>
+/// <summary>Release-check channel. The simple human update command selects it automatically per ADR-0063.</summary>
 public enum ReleaseUpdateChannel { Stable, Preview }
 
 public enum ReleaseUpdateStatus

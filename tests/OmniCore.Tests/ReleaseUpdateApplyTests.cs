@@ -12,6 +12,94 @@ using OmniCore.Protocol;
 public sealed class ReleaseUpdateDownloaderTests
 {
     [Theory]
+    [InlineData(403)]
+    [InlineData(404)]
+    [InlineData(502)]
+    public async Task Blocked_asset_API_uses_one_official_browser_route_with_the_same_integrity_checks(int status)
+    {
+        var bytes = Package(); var requests = 0;
+        using var directory = new TempDirectory();
+        using var downloader = new ReleaseUpdateDownloader(new Handler(request =>
+        {
+            requests++;
+            Assert.Null(request.Headers.Authorization);
+            Assert.True(request.Headers.CacheControl?.NoCache);
+            Assert.Contains("omnicore_download=", request.RequestUri!.Query);
+            if (request.RequestUri.Host == "api.github.com") return new((HttpStatusCode)status);
+            Assert.Equal("github.com", request.RequestUri.Host);
+            Assert.Equal("/juancgomezm-s/OmniCore/releases/download/v0.2.0/omnicore-cli-0.2.0.tgz", request.RequestUri.AbsolutePath);
+            return Bytes(bytes);
+        }));
+        var result = await downloader.DownloadAsync(Asset(bytes), "v0.2.0", directory.Path, "0.2.0", TestContext.Current.CancellationToken);
+        Assert.Equal(ReleaseUpdateDownloadStatus.Downloaded, result.Status);
+        Assert.Equal(2, requests);
+    }
+
+    [Fact]
+    public async Task Expired_CDN_redirect_uses_a_fresh_official_route_without_modifying_the_signed_query()
+    {
+        var bytes = Package(); var requests = 0;
+        using var directory = new TempDirectory();
+        using var downloader = new ReleaseUpdateDownloader(new Handler(request =>
+        {
+            requests++;
+            return request.RequestUri!.Host switch
+            {
+                "api.github.com" => new(HttpStatusCode.Redirect)
+                    { Headers = { Location = new Uri("https://release-assets.githubusercontent.com/test?sig=expired") } },
+                "release-assets.githubusercontent.com" => Expired(request),
+                "github.com" => Bytes(bytes),
+                _ => throw new InvalidOperationException("unexpected origin"),
+            };
+        }));
+        var result = await downloader.DownloadAsync(Asset(bytes), "v0.2.0", directory.Path, "0.2.0", TestContext.Current.CancellationToken);
+        Assert.Equal(ReleaseUpdateDownloadStatus.Downloaded, result.Status);
+        Assert.Equal(3, requests);
+        static HttpResponseMessage Expired(HttpRequestMessage request)
+        {
+            Assert.Equal("?sig=expired", request.RequestUri!.Query);
+            return new((HttpStatusCode)618);
+        }
+    }
+
+    [Theory]
+    [InlineData("rate")]
+    [InlineData("digest")]
+    [InlineData("redirect")]
+    public async Task Alternate_transport_never_bypasses_rate_integrity_or_origin_failures(string failure)
+    {
+        var bytes = Package(); var requests = 0;
+        using var directory = new TempDirectory();
+        using var downloader = new ReleaseUpdateDownloader(new Handler(_ =>
+        {
+            Assert.Equal(1, ++requests);
+            return failure switch
+            {
+                "rate" => new(HttpStatusCode.Forbidden) { Headers = { { "X-RateLimit-Remaining", "0" } } },
+                "redirect" => new(HttpStatusCode.Redirect) { Headers = { Location = new Uri("https://evil.example/package") } },
+                _ => Bytes(bytes),
+            };
+        }));
+        var asset = failure == "digest" ? Asset(bytes) with { Sha256 = new string('0', 64) } : Asset(bytes);
+        var result = await downloader.DownloadAsync(asset, "v0.2.0", directory.Path, "0.2.0", TestContext.Current.CancellationToken);
+        Assert.NotEqual(ReleaseUpdateDownloadStatus.Downloaded, result.Status);
+        Assert.Equal(1, requests);
+        Assert.Empty(Directory.GetFiles(directory.Path));
+    }
+
+    [Fact]
+    public async Task Two_HTTP_failures_are_bounded_and_keep_the_final_status_for_diagnosis()
+    {
+        var bytes = Package(); var requests = 0;
+        using var directory = new TempDirectory();
+        using var downloader = new ReleaseUpdateDownloader(new Handler(_ => { requests++; return new((HttpStatusCode)618); }));
+        var result = await downloader.DownloadAsync(Asset(bytes), "v0.2.0", directory.Path, "0.2.0", TestContext.Current.CancellationToken);
+        Assert.Equal(ReleaseUpdateDownloadStatus.NetworkError, result.Status);
+        Assert.Equal("release_asset_http_618", result.DiagnosticCode);
+        Assert.Equal(2, requests);
+    }
+
+    [Theory]
     [InlineData("release-assets.githubusercontent.com")]
     [InlineData("objects.githubusercontent.com")]
     public async Task Github_signed_CDN_query_is_preserved_without_forwarding_credentials(string host)

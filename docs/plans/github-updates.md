@@ -1,5 +1,14 @@
 # Canal de actualizaciones por GitHub
 
+**Uso simplificado (2026-11-06):** `omni update` elige canal, descarga, verifica
+e instala sin parámetros extra. El lanzador espera el resultado exacto del helper,
+sin reintentar efectos inciertos. Preview sigue preview; el resto usa stable, con
+fallback a preview únicamente cuando todavía no se publica ninguna versión estable.
+`-update` y `--update` son aliases tolerados. Los comandos de consulta, diagnóstico,
+rollback y selección explícita se mantienen para compatibilidad. Una instalación
+anterior que imprime la ayuda necesita repetir una vez el instalador PowerShell
+del README para obtener este comportamiento. Política vigente en ADR-0063.
+
 Solicitud del usuario del 2026-10-12, incorporada al plan el 2026-10-13.
 **Estado 2026-10-30:** consulta, aplicación y rollback Windows x64 implementados
 para instalación npm global, con verificación de publicador mediante GitHub CLI

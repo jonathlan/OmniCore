@@ -7,6 +7,23 @@ stdio, herramientas del modelo ni la seguridad de Session.
 
 ## Contexto
 
+**Ampliación por petición expresa del usuario (2026-11-06):** `omni update`
+es la autorización humana para comprobar, verificar y aplicar sin subcomandos,
+canal ni confirmación adicional. Una instalación prerelease consulta preview;
+las demás consultan stable y sólo pasan a preview si no existen releases estables.
+No se cambia el canal ante fallos de red, integridad o compatibilidad. Se mantienen
+los comandos avanzados anteriores. El lanzador npm espera el resultado durable
+después de liberar el proceso .NET; no reintenta efectos inciertos. Los aliases
+`-update` y `--update` se resuelven al mismo comando y nunca invocan al modelo.
+Esta excepción explícita sustituye las reglas históricas de canal/confirmación
+para el comando simple; no cambia las preferencias de actualización en la TUI.
+
+La descarga admite una sola ruta pública alternativa del repositorio oficial
+ante fallo HTTP/transporte, con una consulta nueva para evitar redirects CDN
+caducados en cachés. No modifica las consultas firmadas del CDN. No hay alternativa
+ante límites de GitHub, origen inválido o divergencia de tamaño/SHA/identidad.
+El paquete y manifest siguen exigiendo procedencia verificable antes de instalar.
+
 La instalación manual (`scripts/install.ps1`/`install.sh` y npm desde Git) ya
 actualizaba el checkout, pero no existía un canal de Releases. M10 pide comprobar
 versiones publicadas, descargar un paquete verificado, preparar la sustitución sin

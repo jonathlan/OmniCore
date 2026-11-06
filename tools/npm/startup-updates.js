@@ -99,6 +99,7 @@ async function waitForOperation(launch, options) {
   if (!/^[a-f0-9]{32}$/i.test(launch.operationId ?? '')) throw new Error('update_operation_unknown');
   const until = options.now() + 16 * 60 * 1000;
   while (options.now() < until) {
+    options.signal?.throwIfAborted();
     const operation = options.readOperation(launch.statePath);
     if (operation.schemaVersion !== 1 || operation.operationId !== launch.operationId)
       throw new Error('update_operation_unknown');

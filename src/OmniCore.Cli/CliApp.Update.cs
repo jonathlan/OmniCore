@@ -9,9 +9,11 @@ using OmniCore.Protocol;
 
 public sealed partial class CliApp
 {
+    internal static Func<ReleaseUpdateCheckResult, Task<ReleaseUpdateApplyResult>>? ReleaseUpdateApplyOverride { get; set; }
+
     private static async Task<int> RunUpdateAsync(string[] args)
     {
-        if (args.Length < 2) return UpdateUsage();
+        if (args.Length == 1) return await RunSimpleUpdateAsync().ConfigureAwait(false);
         return args[1] switch
         {
             "check" => await RunUpdateCheckAsync(args).ConfigureAwait(false),
@@ -21,6 +23,21 @@ public sealed partial class CliApp
             _ => UpdateUsage(),
         };
     }
+
+    private static async Task<int> RunSimpleUpdateAsync()
+    {
+        Console.WriteLine(Loc().Resolve("updates.checking"));
+        var channel = AutomaticUpdateChannel(CreateRequest(ReleaseUpdateChannel.Stable).InstalledVersion);
+        var check = await CheckReleaseAsync(channel, null).ConfigureAwait(false);
+        // Only absence of stable releases permits preview fallback. Network and integrity
+        // failures must never change channels or masquerade as a successful update.
+        if (channel == ReleaseUpdateChannel.Stable && check.Status == ReleaseUpdateStatus.NoPublishedRelease)
+            check = await CheckReleaseAsync(ReleaseUpdateChannel.Preview, null).ConfigureAwait(false);
+        return await ApplyCheckedReleaseAsync(check, yes: true, simple: true).ConfigureAwait(false);
+    }
+
+    internal static ReleaseUpdateChannel AutomaticUpdateChannel(string installedVersion) =>
+        installedVersion.Split('+')[0].Contains('-') ? ReleaseUpdateChannel.Preview : ReleaseUpdateChannel.Stable;
 
     private static int UpdateUsage()
     {
@@ -41,9 +58,14 @@ public sealed partial class CliApp
     private static async Task<int> RunUpdateApplyAsync(string[] args)
     {
         if (!TryParseUpdateArguments(args, out var version, out var channel, out var yes)) return UpdateUsage();
-        var text = Loc();
         if (!yes && !IsInteractive) return ReportFailure("update_confirmation_required");
         var check = await CheckReleaseAsync(channel, version).ConfigureAwait(false);
+        return await ApplyCheckedReleaseAsync(check, yes, simple: false).ConfigureAwait(false);
+    }
+
+    private static async Task<int> ApplyCheckedReleaseAsync(ReleaseUpdateCheckResult check, bool yes, bool simple)
+    {
+        var text = Loc();
         if (check.Status is ReleaseUpdateStatus.UpToDate or ReleaseUpdateStatus.NoPublishedRelease)
         {
             Console.WriteLine(text.Resolve(ReleaseUpdateResources.StatusKey(check.Status)));
@@ -61,9 +83,12 @@ public sealed partial class CliApp
             return ReportFailure("update_compatibility_unverified");
 
         Console.WriteLine(text.Resolve("updates.available") + ": " + available);
-        Console.WriteLine(text.Resolve("updates.asset") + ": " + (check.AssetName ?? check.Asset.Name));
-        if (check.AssetSize is { } size) Console.WriteLine(text.Resolve("updates.size") + ": " + size.ToString(CultureInfo.InvariantCulture) + " bytes");
-        if (check.AssetSha256 is { } digest) Console.WriteLine(text.Resolve("updates.sha256") + ": " + digest);
+        if (!simple)
+        {
+            Console.WriteLine(text.Resolve("updates.asset") + ": " + (check.AssetName ?? check.Asset.Name));
+            if (check.AssetSize is { } size) Console.WriteLine(text.Resolve("updates.size") + ": " + size.ToString(CultureInfo.InvariantCulture) + " bytes");
+            if (check.AssetSha256 is { } digest) Console.WriteLine(text.Resolve("updates.sha256") + ": " + digest);
+        }
         if (!yes)
         {
             if (!Confirm(text.Resolve("updates.apply.confirm", "version", available)))
@@ -75,11 +100,30 @@ public sealed partial class CliApp
 
         using var downloader = new ReleaseUpdateDownloader();
         var applier = CreateApplier(downloader);
-        var result = await applier.ApplyAsync(check, confirmed: true).ConfigureAwait(false);
+        if (simple) Console.WriteLine(text.Resolve("updates.simple.verifying"));
+        var result = ReleaseUpdateApplyOverride is { } injected
+            ? await injected(check).ConfigureAwait(false)
+            : await applier.ApplyAsync(check, confirmed: true).ConfigureAwait(false);
         if (!result.Prepared) return ReportFailure(result.DiagnosticCode);
+        if (simple && TryWriteUpdateReceipt(result.State, available)) return 0;
         Console.WriteLine(text.Resolve("updates.apply.prepared", "version", available));
         PrintRecoveryCommand(result.State);
         return 0;
+    }
+
+    private static bool TryWriteUpdateReceipt(ReleaseUpdateState? state, string version)
+    {
+        var nonce = Environment.GetEnvironmentVariable("OMNICORE_UPDATE_RECEIPT_NONCE");
+        if (nonce is null || nonce.Length != 32 || !nonce.All(Uri.IsHexDigit)
+            || state?.OperationId is null) return false;
+        Console.WriteLine("OMNICORE_UPDATE_" + nonce + ":{"
+            + JsonObj.Field("operationId", state.OperationId) + ","
+            + JsonObj.Field("statePath", ReleaseUpdateStateStore.CreateDefault().StatePath) + ","
+            + JsonObj.Field("version", version) + ","
+            + JsonObj.Field("waiting", Loc().Resolve("updates.simple.waiting")) + ","
+            + JsonObj.Field("succeeded", Loc().Resolve("updates.simple.succeeded", "version", version)) + ","
+            + JsonObj.Field("failed", Loc().Resolve("updates.simple.failed")) + "}");
+        return true;
     }
 
     private static int RunUpdateRollback(string[] args)
@@ -256,6 +300,8 @@ public sealed partial class CliApp
         "update_state_invalid" or "update_state_unreadable" => "updates.error.state_invalid",
         "update_toolchain_unavailable" or "npm_not_found" or "node_not_found" => "updates.error.toolchain_unavailable",
         "update_rollback_unavailable" => "updates.error.rollback_unavailable",
+        "release_asset_unavailable" => "updates.error.asset_network",
+        { } diagnostic when diagnostic.StartsWith("release_asset_http_", StringComparison.Ordinal) => "updates.error.asset_network",
         "update_download_failed" or "release_asset_digest_mismatch" or "release_asset_size_mismatch"
             or "release_asset_redirect_rejected" or "release_package_identity_mismatch"
             or "release_asset_too_large" or "release_asset_not_found" or "release_asset_invalid"

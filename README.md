@@ -24,7 +24,7 @@ repositorio, Git, el SDK de .NET ni Rust. Actualmente la entrega publicada es pr
 **npm — alternativa si ya tienes Node.js 20+ con npm y el runtime .NET 10 x64:**
 
 ```powershell
-npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.9/omnicore-cli-0.1.1-rc.9-win-x64.tgz
+npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.10/omnicore-cli-0.1.1-rc.10-win-x64.tgz
 ```
 
 Después puedes abrir la aplicación con **`omni.cmd`**, en la misma terminal.
@@ -32,15 +32,22 @@ El instalador PowerShell verifica hashes y firmas de las dependencias, las
 attestations del paquete de OmniCore y guarda la carpeta del comando en el `PATH`
 del usuario para los siguientes inicios. La alternativa npm usa el archivo de una
 versión concreta y requiere las dependencias instaladas. Para elegir una versión o un destino en PowerShell, añade
-`-Version 0.1.1-rc.9` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
+`-Version 0.1.1-rc.10` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
 El canal estable se selecciona con `-Channel Stable` cuando haya una release estable publicada.
 
-**Si ya tienes OmniCore:** abre **Ajustes → General → Actualizaciones**, elige
-**Preview** y pulsa **Comprobar ahora**. Cuando la descarga esté verificada, elige
-**Instalar y reiniciar ahora** o **En el próximo inicio**. También puedes consultar
-desde PowerShell con `omni.cmd update check --channel preview` y aplicar con
-`omni.cmd update apply --channel preview --yes`. Se conserva la configuración
-personal y la instalación anterior para poder revertir.
+**Para actualizar, sólo ejecuta:**
+
+```powershell
+omni update
+```
+
+Busca, descarga, verifica e instala la nueva versión y espera hasta confirmar el
+resultado. El canal se elige automáticamente: una instalación preview sigue
+preview; las demás usan stable, o preview si todavía no existen releases estables.
+Se conservan la configuración personal y un respaldo de la instalación anterior.
+Si tienes una versión antigua que muestra la ayuda al ejecutar `omni update`,
+repite una vez el instalador PowerShell de arriba para incorporar este comando.
+También puedes gestionar las actualizaciones desde **Ajustes → General → Actualizaciones**.
 
 OmniCore es un runtime **local-first en C#/.NET 10** para trabajar sobre repositorios con modelos locales o de frontera. Su primer cliente es el CLI `omni`; Protocol y Client también están preparados para consumidores como OmniCoder.
 
@@ -459,11 +466,13 @@ Sin la opción de GitHub, los scripts instalan el contenido del checkout actual.
 Ninguna modalidad modifica cuentas, preferencias, sesiones o workspaces. `main` es el canal de
 desarrollo. Para fijar una revisión, usa `git checkout <SHA>` antes de instalar;
 no se presenta como una release estable. El servicio de actualización desde
-GitHub Releases está cableado para Windows x64: `omni update check`,
-`omni update apply --yes`, `omni update status` y `omni update rollback --yes`.
+GitHub Releases está cableado para Windows x64: `omni update` completa la
+actualización sin parámetros adicionales. Para diagnóstico se mantienen
+`omni update check`, `omni update status` y `omni update rollback --yes`.
 Aplicar o revertir reemplaza el paquete mediante npm después de salir la CLI;
 cierra otras instancias de OmniCore antes de hacerlo. La consulta no instala nada.
-El canal `stable` es el predeterminado; `--channel preview` permite prereleases.
+El comando simple selecciona el canal automáticamente; la consulta avanzada
+mantiene `stable` por defecto y permite `--channel preview`.
 La descarga y su manifest deben superar SHA256 y attestations del repositorio,
 workflow y commit autorizado. El canal preview ya tiene una primera release
 firmada; stable sólo ofrece versiones estables publicadas y puede no tener ninguna. Antes del reemplazo
