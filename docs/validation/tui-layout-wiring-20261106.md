@@ -66,6 +66,11 @@ recibos: no se atribuye el verde de una revisión anterior al nuevo commit.
 La primera regresión ampliada detectó la pérdida de Aceptar como foco inicial
 en los avisos de sesión ocupada. Se detuvo esa imagen y se corrigió el foco;
 la prueba de aviso largo también exige que Aceptar lo conserve antes de leer.
+La CI Windows detectó además una carrera en la prueba de recuperación npm: el
+recibo `Succeeded` se escribe antes de que el `finally` del helper libere su lock.
+La espera del fixture exige ahora ambas condiciones antes de inspeccionar la
+limpieza. Conserva los límites de tiempo y todas las aserciones de recuperación;
+no cambia el orden de bloqueo ni el comportamiento del updater de producción.
 La evidencia local se conserva en
 `artifacts/tui-audit-20261106/` y `artifacts/tui-audit-*.log` del checkout de trabajo.
 

@@ -111,7 +111,9 @@ async function waitForTerminalState(statePath, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    if (terminal.has(state.status)) return state;
+    // The helper writes the terminal receipt before its finally block releases
+    // the owner lock. Observe both before inspecting cleanup or deleting fixtures.
+    if (terminal.has(state.status) && !fs.existsSync(statePath + '.helper.lock')) return state;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error('timed out waiting for recovery helper to finish');
