@@ -280,6 +280,7 @@ public sealed partial class TuiApp
         reload.Accepted += (_, e) => { e.Handled = true; ReloadKeyBindings(); ShowKeyBindings(); };
         var close = new Button { Id = "keybindings-close", X = Pos.AnchorEnd(16), Y = Pos.AnchorEnd(2), Text = KeyBindingText("close") };
         close.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); };
+        EnterNavigation.Focus(close, content);
         frame.Add(content, reload, close); ApplyTheme(frame); _overlay = frame; _window.Add(frame); content.SetFocus();
     }
 }

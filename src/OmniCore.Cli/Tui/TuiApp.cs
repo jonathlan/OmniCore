@@ -2052,6 +2052,7 @@ public sealed partial class TuiApp
         up.Accepted += (_, _) => Priority(10); down.Accepted += (_, _) => Priority(-10);
         var back = new Button { Id = "sidebar-settings-back", X = Pos.AnchorEnd(14), Y = Pos.AnchorEnd(2), Text = Pref("back") };
         back.Accepted += (_, _) => { CloseOverlay(); ShowPreferences("general", categoryPage: true); };
+        EnterNavigation.Focus(expand, list);
         frame.Add(scopeButton, mode, heading, list, description, visible, expand, reset, up, down, help, notice, back);
         Update(); ApplyTheme(frame); _overlay = frame; _window.Add(frame); list.SetFocus();
     }
@@ -2195,6 +2196,7 @@ public sealed partial class TuiApp
         };
         cancel.Accepted += (_, _) => RespondQuestionnaire(interaction,
             new OmniCore.Client.QuestionnaireResponseDto(Array.Empty<OmniCore.Client.QuestionnaireAnswerDto>(), true));
+        EnterNavigation.FocusFields(overlay, submit);
         overlay.Add(error, submit, cancel);
         _overlay = overlay;
         ApplyTheme(overlay);
@@ -2222,6 +2224,7 @@ public sealed partial class TuiApp
     {
         if (view is PixelWidgetView pixelWidget) pixelWidget.InvalidateVisualCache();
         ConfigureEditorContextMenu(view);
+        if (view is CheckBox checkBox) EnterNavigation.Attach(checkBox);
         preferences |= view is FrameView && view.Id is { } preferenceId
             && (preferenceId.Contains("preferences", StringComparison.Ordinal) || preferenceId == "model-toggles" || preferenceId.StartsWith("model-catalog-", StringComparison.Ordinal)
                 || preferenceId.StartsWith("claude-account", StringComparison.Ordinal));
@@ -2983,6 +2986,7 @@ public sealed partial class TuiApp
             Width = Dim.Fill(4), Height = 1 };
         cancel.Accepted += (_, _) => { CloseOverlay(); ShowModelPolicies(refreshCatalog: false); };
         var save = new Button { Id = "profile-limits-save", X = Pos.AnchorEnd(14), Y = Pos.AnchorEnd(2), Text = labels.Save };
+        EnterNavigation.FocusFields(panel, save);
         save.Accepted += (_, _) =>
         {
             if (!int.TryParse(steps.Text.ToString(), out var stepCount)
@@ -3262,6 +3266,7 @@ public sealed partial class TuiApp
             Text = message, ReadOnly = true, WordWrap = true, ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar };
 #pragma warning restore CS0618
         var ok = new Button { Id = "message-close", X = Pos.AnchorEnd(12), Y = Pos.AnchorEnd(2), Text = _localization.Resolve("shell.ok") };
+        EnterNavigation.Focus(ok, body);
         ok.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); }; frame.Add(body, ok); ApplyTheme(frame); _overlay = frame; _window.Add(frame); ok.SetFocus();
     }
 

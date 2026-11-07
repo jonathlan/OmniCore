@@ -202,6 +202,7 @@ public sealed partial class TuiApp
             Width = Dim.Func(_ => Math.Min(24, Math.Max(4, frame.Viewport.Width - 18))), Text = _pet.Name ?? "Omni" };
         var rename = new Button { Id = "companion-rename", X = Pos.Right(name) + 2, Y = Pos.Func(_ => ControlsY()), Height = 2,
             Text = _locale == "es" ? "Renombrar" : "Rename" };
+        EnterNavigation.Focus(rename, name);
         rename.Accepted += (_, _) => RunPetAction("rename " + name.Text, false);
         var visibility = new Button { Id = "companion-visible", X = 2, Y = Pos.Func(_ => ControlsY() + 2), Height = 2,
             Text = PetVisibilityLabel() };

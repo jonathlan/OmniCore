@@ -93,6 +93,7 @@ public sealed partial class TuiApp
         list.Accepted += (_, e) => { e.Handled = true; Accept(); };
         open.Accepted += (_, e) => { e.Handled = true; Accept(); };
         close.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); };
+        EnterNavigation.Focus(close, details);
         frame.Add(new Label { X = 2, Y = 1, Width = Dim.Fill(4), Height = 1, Text = SearchText("scope") },
             new Label { X = 2, Y = 2, Width = Dim.Fill(4), Height = 1, Text = Pref("search") },
             search, status, list, details, notice, open, close,

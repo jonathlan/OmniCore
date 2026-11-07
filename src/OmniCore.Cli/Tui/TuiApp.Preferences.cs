@@ -606,6 +606,7 @@ public sealed partial class TuiApp
             Text = string.Join(Environment.NewLine, lines) };
         var close = new Button { Id = "preferences-inspection-close", X = 2, Y = Pos.AnchorEnd(2), Text = Pref("back") };
         close.Accepted += (_, _) => { CloseOverlay(); ShowPreferences(_preferencesCategory, categoryPage: true); };
+        EnterNavigation.Focus(close, content);
         frame.Add(content, close, new Label { Id = "preferences-help", X = 2, Y = Pos.AnchorEnd(3),
             Width = Dim.Fill(4), Height = 1, Text = Pref("inspection_help") });
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true; content.SetFocus();
@@ -621,6 +622,7 @@ public sealed partial class TuiApp
             Width = Dim.Fill(4), Height = Dim.Fill(5), ReadOnly = true, WordWrap = true, Text = text };
         var close = new Button { Id = "preferences-inspection-close", X = 2, Y = Pos.AnchorEnd(2), Text = Pref("back") };
         close.Accepted += (_, _) => { if (!ReturnToChatIfOpenedFromChat()) { CloseOverlay(); ShowPreferences(_preferencesCategory, categoryPage: true); } };
+        EnterNavigation.Focus(close, content);
         frame.Add(content, close, new Label { Id = "preferences-help", X = 2, Y = Pos.AnchorEnd(3),
             Width = Dim.Fill(4), Height = 1, Text = Pref("inspection_help") });
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true; content.SetFocus();
@@ -1048,6 +1050,7 @@ public sealed partial class TuiApp
         frame.Add(notice, cancel, save,
             new Label { Id = "preferences-help", X = 2, Y = Pos.AnchorEnd(4), Width = Dim.Fill(4),
                 Height = 2, Text = Pref("local_reload") });
+        EnterNavigation.FocusFields(frame, save);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true; providerId.SetFocus();
     }
 

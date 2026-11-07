@@ -53,6 +53,8 @@ public sealed partial class TuiWiringTests
             channel.SetFocus();
         });
         fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => Descendants(fx.App.Overlay!).Any(view => view.Id == "release-update-check" && view.HasFocus),
+            "Enter del canal lleva a Comprobar sin consultar");
         fx.Read(() =>
         {
             Assert.Equal("release-updates", fx.App.Overlay!.Id);
@@ -60,7 +62,7 @@ public sealed partial class TuiWiringTests
             var channel = Descendants(fx.App.Overlay!).OfType<ListView>().Single(view => view.Id == "release-update-channel");
             channel.SelectedItem = 1;
         });
-        ClickId(fx, "release-update-check");
+        EnterOnce(fx, () => Volatile.Read(ref requests) == 1, "otro Enter comprueba una sola vez");
         fx.Wait(() => fx.Read(() => OverlayText(fx.App.Overlay!).Contains("fixture")), "el botón consulta e informa el resultado");
         fx.Read(() =>
         {

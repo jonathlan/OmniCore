@@ -61,6 +61,7 @@ public sealed partial class TuiApp
             if (key.KeyCode != KeyCode.Esc) return;
             key.Handled = true; CloseOverlay(); _composer!.SetFocus();
         };
+        EnterNavigation.Focus(close, content);
         frame.Add(content, close);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); content.SetFocus();
     }

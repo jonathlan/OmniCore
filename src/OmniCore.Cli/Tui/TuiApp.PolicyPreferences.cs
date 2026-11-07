@@ -125,6 +125,8 @@ public sealed partial class TuiApp
             Width = Dim.Fill(4), Height = 2, Text = PolicyPref("reasoning_note") });
         ConfigurePreferenceScroll(panel, y + 9);
         fieldHelp.Text = PolicyPref("help.default_model");
+        EnterNavigation.Focus(save, model, session, daily);
+        EnterNavigation.Focus(saveRoutes, exploration, implementation, preferLocal, meta, reasoning, architecture, escalationMode, escalationChain);
         frame.Add(panel, fieldHelp, note, save, saveRoutes, models, back);
         if (!snapshot.Available) { model.Enabled = session.Enabled = daily.Enabled = false; }
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); model.SetFocus();

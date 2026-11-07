@@ -93,15 +93,18 @@ public sealed partial class TuiApp
         categories = Row("companion-settings-category", "Memoria: Personal", 1, 9, () => { category = (category + 1) % names.Length; categories!.Text = "Memoria: " + names[category]; ReloadMemory(); });
         memory.ValueChanged += (_, _) => { if (SelectedFact() is { } fact) { edit.Text = fact.Text; project.Text = fact.Project ?? ""; } };
         models.ValueChanged += (_, _) => UpdateContext();
-        Row("companion-settings-add", "Añadir", 1, Pos.Bottom(project), () =>
+        var addMemory = Row("companion-settings-add", "Añadir", 1, Pos.Bottom(project), () =>
         { var text = edit.Text?.ToString() ?? ""; var scope = project.Text?.ToString(); var selectedCategory = CompanionCoordinator.MemoryCategories[category];
             Persist(() => { hub.RememberCategorized(text, selectedCategory, string.IsNullOrWhiteSpace(scope) ? null : scope); ReloadMemory(); }); });
-        Row("companion-settings-edit", "Guardar recuerdo", 10, Pos.Bottom(project), () =>
+        var saveMemory = Row("companion-settings-edit", "Guardar recuerdo", 10, Pos.Bottom(project), () =>
         { var fact = SelectedFact(); if (fact is null) return; var text = edit.Text?.ToString() ?? ""; var scope = project.Text?.ToString();
             Persist(() => { hub.EditMemory(fact, text, string.IsNullOrWhiteSpace(scope) ? null : scope); ReloadMemory(); }); });
         Row("companion-settings-forget", "Olvidar", 29, Pos.Bottom(project), () => { var fact = SelectedFact(); if (fact is not null) Persist(() => { hub.Forget(fact.Id); ReloadMemory(); }); });
         Row("companion-settings-resolve", "Resuelto", 40, Pos.Bottom(project), () => { var fact = SelectedFact(); if (fact is not null) Persist(() => { hub.ResolveMemory(fact.Id); ReloadMemory(); }); });
         Row("companion-settings-close", "Cerrar", 1, Pos.AnchorEnd(1), CloseOverlay);
+        EnterNavigation.Focus(modelSave, models);
+        EnterNavigation.Focus(edit, memory);
+        EnterNavigation.Focus(() => SelectedFact() is null ? addMemory : saveMemory, project);
         frame.Add(status, models, context, memory, edit, projectTitle, project, usage);
         _overlay = frame; _window.Add(frame); ApplyTheme(frame, PreferencesSurface); CompactCompanionButtons(frame); frame.SetFocus(); RenderCompanionBadge();
         _ = Task.Run(() =>

@@ -85,6 +85,7 @@ public sealed partial class TuiApp
         target.ValueChanged += (_, _) => Details();
         source.HasFocusChanged += (_, _) => { if (source.HasFocus) { describeTarget = false; Details(); } };
         target.HasFocusChanged += (_, _) => { if (target.HasFocus) { describeTarget = true; Details(); } };
+        EnterNavigation.Focus(source, saved);
         source.Accepted += (_, args) => { args.Handled = true; target.SetFocus(); };
         target.Accepted += (_, args) => { args.Handled = true; AddPreference(); };
         apply.Accepted += (_, _) => AddPreference();

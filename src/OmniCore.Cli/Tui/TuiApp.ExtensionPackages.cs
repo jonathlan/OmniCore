@@ -69,6 +69,9 @@ public sealed partial class TuiApp
         var back = new Button { X = 2, Y = Pos.AnchorEnd(2), Text = ExtensionText("platform.back") };
         back.Accepted += (_, _) => { CloseOverlay(); ShowPreferences("extensions_skills", categoryPage: true); };
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; CloseOverlay(); ShowPreferences("extensions_skills", categoryPage: true); } };
+        EnterNavigation.Focus(details, list);
+        EnterNavigation.Focus(config, details);
+        EnterNavigation.Focus(install, source);
         frame.Add(list, details, source, install, enable, disable, uninstall, views, config, update, rollback, context, back,
             new Label { X = 2, Y = Pos.AnchorEnd(7), Width = Dim.Fill(4), Text = ExtensionText("platform.source") });
         Sync(); ApplyTheme(frame); _overlay = frame; _window.Add(frame); list.SetFocus();
@@ -88,6 +91,7 @@ public sealed partial class TuiApp
         var no = new Button { X = Pos.Right(yes) + 2, Y = Pos.AnchorEnd(2), Text = ExtensionText("platform.back") };
         yes.Accepted += (_, _) => ExtensionPackageAction(action, package.Id, true, package, source);
         no.Accepted += (_, _) => ShowExtensionPackages(); frame.Add(yes, no);
+        EnterNavigation.FocusReadOnly(frame, no);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); no.SetFocus();
     }
     private void ExtensionPackageAction(string action, string value, bool trust, ExtensionPackageState? expected = null, string? source = null)
@@ -139,6 +143,8 @@ public sealed partial class TuiApp
         var back = new Button { X = 2, Y = Pos.AnchorEnd(2), Text = ExtensionText("platform.back") };
         back.Accepted += (_, _) => ShowExtensionPackages(); frame.Add(key, value, save, back,
             new Label { X = 2, Y = 7, Text = ExtensionText("platform.json") });
+        EnterNavigation.Focus(load, key);
+        EnterNavigation.Focus(save, value);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); key.SetFocus();
     }
     internal void ShowExtensionViews()
@@ -203,6 +209,7 @@ public sealed partial class TuiApp
                 catch (Exception error) when (error is IOException or InvalidOperationException or ArgumentException or JsonException or KeyNotFoundException)
                 { ShowExtensionNotice(ExtensionText("platform.failed") + ": " + error.GetType().Name); }
             }
+            else if (Selected() is not null) details.SetFocus();
         };
         alternative.Accepted += (_, _) =>
         {
@@ -214,6 +221,7 @@ public sealed partial class TuiApp
         back.Accepted += (_, _) => { if (request.Path.Length > 0) ShowExtensionView(request with { Path = request.Path.Contains('/') ? request.Path[..request.Path.LastIndexOf('/')] : "" }); else ShowExtensionViews(); };
         var status = new Label { Id = "extension-view-status", X = 2, Y = Pos.AnchorEnd(5), Width = Dim.Fill(4), Height = 1,
             Text = view.Diagnostic is null ? ExtensionState(view.State) : _localization.Resolve(view.Diagnostic) };
+        EnterNavigation.Focus(back, details);
         frame.Add(list, details, alternative, back, status);
         if (view.Metadata is { ValueKind: JsonValueKind.Object } metadata && metadata.TryGetProperty("git", out var git)
             && git.ValueKind == JsonValueKind.Object)
@@ -226,6 +234,7 @@ public sealed partial class TuiApp
         {
             var search = new TextField { Id = "extension-view-search", X = 2, Y = 0, Width = Dim.Percent(45), Text = request.Search };
             var find = new Button { Id = "extension-view-find", X = Pos.Right(search) + 2, Y = 0, Text = ExtensionText("platform.search") };
+            EnterNavigation.Focus(find, search);
             find.Accepted += (_, _) => ShowExtensionView(request with { Search = search.Text?.ToString() ?? "" }); frame.Add(search, find);
         }
         Sync(); ApplyTheme(frame); _overlay = frame; _window.Add(frame); list.SetFocus();
@@ -278,6 +287,7 @@ public sealed partial class TuiApp
         var back = new Button { X = 2, Y = Pos.AnchorEnd(2), Text = ExtensionText("platform.back") };
         back.Accepted += (_, _) => ShowExtensionView(request); frame.Add(instruction, create, back,
             new Label { X = 2, Y = 7, Width = Dim.Fill(4), Text = ExtensionText("platform.instruction") });
+        EnterNavigation.Focus(create, instruction);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); instruction.SetFocus();
     }
     private void ShowExtensionAlternativeReady(ExtensionViewRequest request, WorkspaceAlternative target)

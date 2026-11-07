@@ -388,6 +388,7 @@ public sealed partial class TuiApp
         yes.Accepted += (_, _) => confirm();
         no.Accepted += (_, _) => RenderSessionPreferences(CurrentSessionPreferenceIndex());
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; RenderSessionPreferences(CurrentSessionPreferenceIndex()); } };
+        EnterNavigation.Focus(no, message);
         frame.Add(message, yes, no); ApplyTheme(frame); _overlay = frame; _window.Add(frame); no.SetFocus();
     }
 
@@ -416,6 +417,7 @@ public sealed partial class TuiApp
         };
         cancel.Accepted += (_, _) => RenderSessionPreferences(_sessionPreferencesSelectedIndex);
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; RenderSessionPreferences(_sessionPreferencesSelectedIndex); } };
+        EnterNavigation.Focus(save, input);
         frame.Add(label, input, save, cancel); ApplyTheme(frame); _overlay = frame; _window.Add(frame); input.SetFocus();
     }
 

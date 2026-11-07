@@ -73,6 +73,8 @@ public sealed partial class TuiApp
         var back = new Button { Id = "extension-context-back", X = 2, Y = Pos.AnchorEnd(2), Text = ExtensionText("platform.back") };
         back.Accepted += (_, _) => ShowExtensionPackages();
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; ShowExtensionPackages(); } };
+        EnterNavigation.Focus(content, list);
+        EnterNavigation.Focus(preview, content);
         frame.Add(list, content, status, preview, approve, revoke, back);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); Read(); list.SetFocus();
     }

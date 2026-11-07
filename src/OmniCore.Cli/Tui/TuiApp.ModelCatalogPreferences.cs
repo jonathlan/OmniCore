@@ -363,6 +363,7 @@ public sealed partial class TuiApp
             catch (ModelCatalogConfigurationException exception) { status.Text = ModelCatalogError(exception.MessageKey); }
             catch (Exception) { status.Text = ModelCatalogText("saveFailed"); }
         };
+        EnterNavigation.FocusFields(frame, save);
         frame.Add(status, save, cancel);
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; HandleModelCatalogPreferencesEscape(); } };
         ApplyTheme(frame);

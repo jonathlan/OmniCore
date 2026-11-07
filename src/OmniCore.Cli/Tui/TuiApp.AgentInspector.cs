@@ -103,6 +103,7 @@ public sealed partial class TuiApp
         list.Accepted += (_, e) => { e.Handled = true; if (visible.Count > 0) details.SetFocus(); };
         refresh.Accepted += (_, e) => { e.Handled = true; Refresh(); };
         close.Accepted += (_, e) => { e.Handled = true; CloseOverlay(); };
+        EnterNavigation.Focus(close, details);
         frame.Add(capture, new Label { X = 2, Y = 2, Width = Dim.Fill(4), Height = 1, Text = Pref("search") },
             search, columns, list, details, notice, refresh, close,
             new Label { X = 2, Y = Pos.AnchorEnd(1), Width = Dim.Fill(4), Height = 1, Text = AgentInspectorText("help") });

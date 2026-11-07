@@ -35,6 +35,7 @@ public sealed partial class TuiApp
             Text = target.CanConnect || target.CanTest || target.CanDisconnect || target.CanDiscoverModels
                 ? AccountUi("help.apiKey") : AccountUi("help.noProviderAction") };
         var save = new Button { Id = "provider-key-save", X = 3, Y = 9, Width = Dim.Percent(43), Text = AccountUi("action.save") };
+        EnterNavigation.Focus(save, key);
         var test = new Button { Id = "provider-test", X = Pos.Right(save) + 1, Y = 9, Width = Dim.Fill(3), Text = AccountUi("action.test") };
         var catalog = new Button { Id = "provider-discover", X = 3, Y = 11, Width = Dim.Percent(43), Text = AccountUi("action.discover") };
         var credits = new Button { Id = "provider-credits", X = Pos.Right(catalog) + 1, Y = 11, Width = Dim.Fill(3),
@@ -117,11 +118,6 @@ public sealed partial class TuiApp
             Start(async token => await _providerConnectionHost.ConnectAsync(target, secret, shouldValidate, token).ConfigureAwait(false));
         }
         save.Accepted += (_, _) => Save();
-        key.KeyDown += (_, input) =>
-        {
-            if (input.KeyCode != KeyCode.Enter) return;
-            Save(); input.Handled = true;
-        };
         key.TextChanged += (_, _) => RefreshActions();
         test.Accepted += (_, _) => Start(async token => await _providerConnectionHost.TestAsync(target, token).ConfigureAwait(false));
         catalog.Accepted += (_, _) =>

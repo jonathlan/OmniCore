@@ -84,7 +84,8 @@ public sealed partial class TuiApp
             status.Text = UpdateText(startup is not null && auto.Value == CheckState.Checked ? "startup.background" : "ready"); details.Text = UpdateText("metadata_pending"); check.Enabled = true; RefreshReady();
         };
         channel.Accepted += (_, args) => { args.Handled = true; };
-        channel.KeyDown += (_, key) => { if (key.KeyCode.ToString() == "Enter") key.Handled = true; };
+        EnterNavigation.Focus(check, channel);
+        EnterNavigation.Focus(close, details);
         check.Accepted += (_, args) =>
         {
             args.Handled = true;

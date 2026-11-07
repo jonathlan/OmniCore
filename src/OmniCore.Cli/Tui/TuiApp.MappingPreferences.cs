@@ -54,6 +54,7 @@ public sealed partial class TuiApp
             catch (ArgumentException) { note.Text = PolicyPref("invalid_command_aliases"); return false; }
         }
         list.ValueChanged += (_, _) => Select();
+        EnterNavigation.Focus(source, list);
         apply.Accepted += (_, _) => ApplyRow();
         foreach (var field in new[] { source, target }) field.KeyDown += (_, key) =>
         { if (key.KeyCode == KeyCode.Enter) { ApplyRow(); key.Handled = true; } };

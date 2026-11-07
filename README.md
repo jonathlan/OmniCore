@@ -611,6 +611,13 @@ idioma pendiente y **Guardar** lo aplica. Pasar por una fila no cambia el idioma
 Los textos informativos llevan más sangría, tono secundario y separación respecto
 de los controles.
 
+**Enter dentro de los menús:** en una lista abre la selección o lleva a su acción
+de **Aplicar**; en los campos de un formulario lleva al botón **Guardar** de su
+sección. Otro Enter sobre ese botón confirma. En una casilla cambia su estado;
+en editores de varias líneas conserva el salto de línea. Los paneles de lectura
+permiten pasar a **Volver/Cerrar** con Enter. Los cambios de permisos y las
+acciones que requieren confirmación conservan su revisión y cancelación explícitas.
+
 En **F4 → General y apariencia → Tema de colores…** hay **16 temas**:
 OmniCore, OpenCode, Claude Light, Claude Dark, Codex, OmniLlama, OmniLlama Light,
 Nord, Dracula, Catppuccin Mocha, Catppuccin Latte, Tokyo Night, Gruvbox,

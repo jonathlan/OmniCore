@@ -71,6 +71,7 @@ public sealed partial class TuiApp
         login.Accepted += (_, _) => { if (Selected() is { CanLogin: true } row) StartClaudeLogin(row.ProviderId); };
         logout.Accepted += (_, _) => { if (Selected() is { CanLogout: true } row) ConfirmClaudeLogout(row.ProviderId); };
         back.Accepted += (_, _) => { _returnToClaudeAccounts = false; CloseOverlay(); ShowPreferences("accounts_connections", categoryPage: true); };
+        EnterNavigation.Focus(() => login.Enabled ? login : logout.Enabled ? logout : back, list, detail);
         frame.Add(list, detail, status, login, logout, back);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true;
         Sync();

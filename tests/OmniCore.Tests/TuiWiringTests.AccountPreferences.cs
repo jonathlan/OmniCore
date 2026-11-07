@@ -3,6 +3,7 @@ using BillingMode = OmniCore.Domain.BillingMode;
 using OmniCore.Host;
 using System.Drawing;
 using Terminal.Gui.Drivers;
+using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -158,8 +159,11 @@ public sealed partial class TuiWiringTests
         ExportPreferenceFrame(fx, 80, 25, "accounts-claude", "claude-alt");
         Assert.Equal(0, accounts.LoginCalls);
         var list = Descendants(fx.App.Overlay!).OfType<ListView>().Single(view => view.Id == "claude-account-list");
-        fx.Invoke(() => list.SelectedItem = 1);
-        ClickId(fx, "claude-account-login");
+        fx.Invoke(() => { list.SelectedItem = 1; list.SetFocus(); });
+        EnterOnce(fx, () => Descendants(fx.App.Overlay!).Any(view => view.Id == "claude-account-login" && view.HasFocus),
+            "Enter de la lista lleva a Conectar");
+        Assert.Equal(0, accounts.LoginCalls);
+        fx.InjectKey(new Key(Terminal.Gui.Drivers.KeyCode.Enter));
         fx.Wait(() => accounts.LoginCalls == 1, "login explícito invoca proveedor seleccionado");
         Assert.Equal("claude-alt", accounts.LastProviderId);
         fx.Wait(() => fx.App.Overlay is not null && OverlayText(fx.App.Overlay).Contains("Sesión Claude conectada."),
@@ -227,6 +231,14 @@ public sealed partial class TuiWiringTests
         Assert.True(Descendants(fx.App.Overlay!).OfType<Button>().Single(view => view.Id == "provider-key-save").Enabled);
         foreach (var id in new[] { "provider-test", "provider-discover", "provider-disconnect" })
             Assert.False(Descendants(fx.App.Overlay!).OfType<Button>().Single(view => view.Id == id).Enabled);
+        fx.Invoke(() => EnterControl(fx, "provider-api-key").SetFocus());
+        EnterOnce(fx, () => EnterControl(fx, "provider-key-save").HasFocus, "Enter de la clave lleva a Guardar");
+        var validate = (CheckBox)EnterControl(fx, "provider-validate-key");
+        var previous = validate.Value;
+        var toggles = 0;
+        fx.Invoke(() => { validate.ValueChanged += (_, _) => toggles++; validate.SetFocus(); });
+        EnterOnce(fx, () => toggles == 1, "Enter cambia la casilla real una sola vez");
+        Assert.NotEqual(previous, validate.Value);
         Assert.Equal(0, providers.OperationCalls);
         ExportPreferenceFrame(fx, 80, 25, "accounts-api", "Anthropic");
     });

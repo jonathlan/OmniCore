@@ -27,8 +27,15 @@ public sealed partial class TuiWiringTests
         ChoosePreferenceCategory(fx, "local_engines");
         Assert.Equal(0, requests); // Opening the page is passive.
         ClickId(fx, "local-engine-edit");
-        fx.Invoke(() => Descendants(fx.App.Overlay!).OfType<TextField>().Single(view => view.Id == "local-engine-endpoint").Text = "http://127.0.0.1:23456");
-        ClickId(fx, "local-engine-save");
+        fx.Invoke(() =>
+        {
+            var endpoint = Descendants(fx.App.Overlay!).OfType<TextField>().Single(view => view.Id == "local-engine-endpoint");
+            endpoint.Text = "http://127.0.0.1:23456";
+            endpoint.SetFocus();
+        });
+        EnterOnce(fx, () => Descendants(fx.App.Overlay!).Any(view => view.Id == "local-engine-save" && view.HasFocus), "Enter lleva a Guardar");
+        Assert.Equal(0, requests);
+        EnterOnce(fx, () => fx.App.LocalEngineDiscoveryTask?.IsCompleted == true, "Enter guarda y descubre una sola vez");
         fx.Wait(() => fx.App.LocalEngineDiscoveryTask?.IsCompleted == true, "guardar descubre el modelo automáticamente");
         fx.Wait(() => policies.Models.Any(model => model.Id == servedId), "registro recargado sin reiniciar");
         Assert.Equal(1, requests);

@@ -51,6 +51,8 @@ public sealed partial class TuiApp
             Select();
         }
         search.TextChanged += (_, _) => Filter(); list.ValueChanged += (_, _) => Select();
+        EnterNavigation.Activate(list, search);
+        EnterNavigation.Focus(() => prepare.Enabled ? prepare : back, detail);
         list.Accepted += (_, e) => { e.Handled = true; detail.SetFocus(); };
         prepare.Accepted += (_, _) =>
         {

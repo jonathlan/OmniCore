@@ -158,6 +158,7 @@ public sealed partial class TuiApp
                 catch (Exception) { CloseOverlay(); ShowMessage(SecurityPref("save_failed")); }
             });
         };
+        EnterNavigation.Focus(apply, list);
         frame.Add(apply); OpenControlFrame(frame, list);
     }
 
@@ -234,6 +235,8 @@ public sealed partial class TuiApp
                 : UiCompletionResources.EnumLabel("security.decision", chosen, _locale)) + "\n" + ControlText("profile_scope"),
                 () => SavePermissions(host, snapshot, snapshot.Profile, rules));
         };
+        EnterNavigation.Focus(decision, list, tool);
+        EnterNavigation.Focus(save, decision);
         frame.Add(save); OpenControlFrame(frame, ids.Length > 0 ? list : tool);
     }
 
@@ -265,7 +268,9 @@ public sealed partial class TuiApp
         };
         frame.Add(trust, new Label { X = 2, Y = 5, Width = Dim.Fill(2), Text = SecurityPref("grants") }, list, revoke,
             new Label { X = 2, Y = 14, Width = Dim.Fill(2), Height = 2, Text = SecurityPref("help") });
-        ControlBack(frame, ReturnToExecutionPermissions); OpenControlFrame(frame, trust);
+        var back = ControlBack(frame, ReturnToExecutionPermissions);
+        EnterNavigation.Focus(() => revoke.Enabled ? revoke : back, list);
+        OpenControlFrame(frame, trust);
     }
 
     private void ConfirmSecurityChange(string title, string description, Action confirm)

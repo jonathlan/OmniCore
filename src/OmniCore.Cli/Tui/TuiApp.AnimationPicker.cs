@@ -66,6 +66,7 @@ public sealed partial class TuiApp
             { status.Text = _localization.Resolve("shell.could_not_save_unchanged"); return; }
             ReturnFromAnimationPicker();
         }
+        EnterNavigation.Activate(list, search);
         list.Accepted += (_, args) => { args.Handled = true; Select(); };
         var choose = new Button { Id = "animation-choose", X = 4, Y = Pos.AnchorEnd(2), Text = _localization.Resolve("animation.apply") };
         var cancel = new Button { Id = "animation-choice-cancel", X = Pos.AnchorEnd(16), Y = Pos.AnchorEnd(2), Text = Pref("cancel") };

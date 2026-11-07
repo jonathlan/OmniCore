@@ -78,6 +78,8 @@ public sealed partial class TuiApp
         cancel.Accepted += (_, _) => CloseOverlay();
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; CloseOverlay(); } };
         list.ValueChanged += (_, _) => Read();
+        EnterNavigation.Focus(content, list);
+        EnterNavigation.Focus(() => apply.Enabled ? apply : cancel, content);
         frame.Add(list, content, status, apply, cancel);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame);
         if (effects.Count > 0)

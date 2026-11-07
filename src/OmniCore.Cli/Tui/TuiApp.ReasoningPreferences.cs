@@ -77,6 +77,7 @@ public sealed partial class TuiApp
                 : ",\"expectedRevision\":" + defaultRevision.ToString(CultureInfo.InvariantCulture));
             CloseOverlay(); SendTrustedModeCommand(forRun ? "run.mode.select" : "mode.default.set", fields); PollEvents();
         };
+        EnterNavigation.Focus(apply, options);
         Sync(); frame.Add(active, future, current, options, detail, apply); ControlBack(frame); OpenControlFrame(frame, options);
     }
 
@@ -226,6 +227,7 @@ public sealed partial class TuiApp
             }
             catch (Exception) { detail.Text = _localization.Resolve("shell.reasoning_change_rejected"); }
         };
+        EnterNavigation.Focus(apply, options, budget);
         Sync(); frame.Add(heading, active, future, status, options, budgetLabel, budget, detail, apply); ControlBack(frame);
         OpenControlFrame(frame, options);
     }

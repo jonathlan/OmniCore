@@ -168,6 +168,7 @@ public sealed partial class TuiApp
                         catch (Exception error) when (error is JsonException or ArgumentException or IOException or InvalidOperationException or UnauthorizedAccessException)
                         { status.Text = ExtensionText("form.invalid"); }
                     };
+                    EnterNavigation.FocusFields(body, save, includeLists: true);
                     actionButtons.Add(save); frame.Add(save);
                     discard = new Button { Id = "extension-form-discard", X = Pos.Right(save) + 2, Y = Pos.AnchorEnd(2),
                         Text = ExtensionText("form.discard"), Visible = dirty };

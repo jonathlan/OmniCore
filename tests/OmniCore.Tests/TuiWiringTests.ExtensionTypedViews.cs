@@ -6,6 +6,7 @@ using OmniCore.Host;
 using OmniCore.Infrastructure;
 using OmniCore.Protocol;
 using Terminal.Gui.Input;
+using Terminal.Gui.Drivers;
 using Terminal.Gui.Views;
 
 namespace OmniCore.Tests;
@@ -47,7 +48,13 @@ public sealed partial class TuiWiringTests
         var local = new Localization(locale);
         Assert.Contains(local.Resolve("extension.form.draft"), fx.Read(() => OverlayText(fx.App.Overlay!)));
         Assert.Equal("Nombre Ñandú", fx.Read(() => title.Text.ToString()));
-        ClickId(fx, "extension-form-save");
+        fx.Invoke(() => title.SetFocus());
+        EnterOnce(fx, () => Descendants(fx.App.Overlay!).Any(view => view.Id == "extension-form-save" && view.HasFocus),
+            "Enter del campo lleva a Guardar extensión");
+        fx.Invoke(() => option.SetFocus());
+        EnterOnce(fx, () => Descendants(fx.App.Overlay!).Any(view => view.Id == "extension-form-save" && view.HasFocus),
+            "Enter de la opción lleva a Guardar extensión");
+        fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => fx.App.Overlay is { } overlay && OverlayText(overlay).Contains(local.Resolve("extension.form.saved"), StringComparison.Ordinal), "Core acknowledged typed values");
         var result = fx.Server.Query("extensions.configuration:" + Uri.EscapeDataString("{\"extensionId\":\"example.preferences\",\"key\":\"display\"}"), CancellationToken.None)!;
         using var saved = JsonDocument.Parse(result.Json);

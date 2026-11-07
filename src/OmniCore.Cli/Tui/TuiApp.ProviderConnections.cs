@@ -108,6 +108,7 @@ public sealed partial class TuiApp
                         ? ProviderConnectionDates(selected) : AccountUi("help.noProviderAction");
         }
 
+        EnterNavigation.Focus(() => connect.Enabled ? connect : test.Enabled ? test : discover.Enabled ? discover : back, list);
         list.ValueChanged += (_, _) => RefreshActions();
         connect.Accepted += (_, _) =>
         {
@@ -365,6 +366,7 @@ public sealed partial class TuiApp
         var cancel = new Button { Id = "provider-key-cancel", X = Pos.AnchorEnd(12), Y = Pos.AnchorEnd(2),
             Text = AccountUi("action.cancel") };
         cancel.Accepted += (_, _) => { CloseOverlay(); ShowProviderConnections(selectedProviderId: providerId); };
+        EnterNavigation.Focus(save, key);
         frame.Add(key, validate, status, save, cancel);
         ApplyTheme(frame);
         _overlay = frame;
@@ -536,6 +538,7 @@ public sealed partial class TuiApp
             catch (Exception) { status.Text = _localization.Resolve("shell.models.saveFailed"); }
         }
         visibility.Accepted += (_, args) => { args.Handled = true; ToggleVisibility(); };
+        EnterNavigation.Focus(visibility, list, filter);
         list.KeyDown += (_, key) =>
         {
             if (key.KeyCode != KeyCode.Space) return;

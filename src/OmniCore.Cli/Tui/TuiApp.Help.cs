@@ -33,6 +33,7 @@ public sealed partial class TuiApp
         github.Accepted += (_, _) => LinkOpenTask = OpenConversationLinkAsync(ProjectGitHub);
         var back = new Button { Id = "about-back", X = 4, Y = Pos.AnchorEnd(2), Text = Pref("back") };
         back.Accepted += (_, _) => ShowHelp();
+        EnterNavigation.Focus(back, email);
         frame.Add(new Label { X = 4, Y = 2, Text = _localization.Resolve("shell.about.email") }, email,
             new Label { X = 4, Y = 6, Text = "GitHub" }, github, back);
         ApplyTheme(frame); _overlay = frame; _window.Add(frame); email.SetFocus();

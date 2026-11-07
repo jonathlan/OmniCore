@@ -88,6 +88,8 @@ public sealed partial class TuiApp
         var back = new Button { Id = "diagnostics-back", X = Pos.AnchorEnd(14), Y = Pos.AnchorEnd(2), Text = DiagnosticsPref("back") };
         back.Accepted += (_, _) => { CloseOverlay(); ShowPreferences("diagnostics_data", categoryPage: true); };
         frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; CloseOverlay(); ShowPreferences("diagnostics_data", categoryPage: true); } };
+        EnterNavigation.Focus(details, list);
+        EnterNavigation.Focus(back, details);
         panel.Add(summary, list, details, new Label { Id = "diagnostics-help", X = 2, Y = 18,
             Width = Dim.Fill(4), Height = 3, Text = DiagnosticsPref("help") });
         ConfigurePreferenceScroll(panel, 22);
