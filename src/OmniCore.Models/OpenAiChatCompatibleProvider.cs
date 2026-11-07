@@ -22,6 +22,7 @@ public sealed class OpenAiProviderOptions
     public Func<DateTimeOffset> UtcNow { get; init; } = static () => DateTimeOffset.UtcNow;
     public Func<double> Jitter { get; init; } = static () => Random.Shared.NextDouble();
     public ProviderResilienceCatalog? CircuitCatalog { get; init; }
+    public bool LimitAutomaticLocalReasoning { get; init; }
 
     private static ValueTask TaskDelay(TimeSpan delay, CancellationToken cancellationToken) =>
         new(System.Threading.Tasks.Task.Delay(delay, cancellationToken));
@@ -40,6 +41,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
     private readonly Func<HttpClient> _httpFactory;
     private readonly OpenAiProviderOptions _options;
     private readonly ProviderResilience _resilience;
+    private bool? _detectedLlamaCpp;
 
     public OpenAiChatCompatibleProvider(ProviderDescriptor descriptor, ISecretProvider secrets)
         : this(descriptor, secrets, static () => new HttpClient(), null, null) { }
@@ -67,6 +69,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
     public string ProviderKey { get; }
     public long? MaximumGenerationRequestAttempts => _resilience.MaximumGenerationRequestAttempts;
     public ProviderCapabilities Capabilities => ProviderCapabilities.Local();
+    public bool UsesLlamaCppDialect => _descriptor.Profile == LlamaCppProfileName || _detectedLlamaCpp == true;
 
     /// <summary>Agrega el stream para los consumidores síncronos heredados.</summary>
     public ModelResponse Complete(ModelRequest request, CancellationToken cancellationToken)
@@ -91,7 +94,15 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         HttpClient http;
         try
         {
+            if (_options.LimitAutomaticLocalReasoning && _descriptor.BillingMode == BillingMode.Local
+                && _descriptor.LocalHost is { Declared: true } && _descriptor.Profile is null
+                && request.Reasoning is null && request.Model.Reasoning is null
+                && _detectedLlamaCpp is null)
+                _detectedLlamaCpp = await DetectLlamaCppAsync(cancellationToken).ConfigureAwait(false);
             (response, http) = await SendWithRetryAsync(BuildBody(request), cancellationToken).ConfigureAwait(false);
+            if (_options.LimitAutomaticLocalReasoning && _descriptor.BillingMode == BillingMode.Local
+                && _descriptor.Profile is null && AdvertisesLlamaCpp(response, ChatCompletionsUrl))
+                _detectedLlamaCpp = true;
         }
         catch
         {
@@ -154,6 +165,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
     {
         var text = new StringBuilder();
         var reasoning = new StringBuilder();
+        string? reasoningField = null;
         var tools = new SortedDictionary<int, ToolAccumulator>();
         var opaqueFields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         var usage = new TokenUsage(0, 0, 0, 0, 0);
@@ -193,10 +205,11 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                             text.Append(choice.Delta.Content);
                             yield return new TextDelta(0, choice.Delta.Content);
                         }
-                        if (!string.IsNullOrEmpty(choice.Delta.ReasoningContent))
+                        if (FindReasoning(choice.Delta.ReasoningContent, choice.Delta.Extra) is { } thought)
                         {
-                            reasoning.Append(choice.Delta.ReasoningContent);
-                            yield return new ReasoningDelta(1, choice.Delta.ReasoningContent);
+                            reasoningField ??= thought.Field;
+                            reasoning.Append(thought.Text);
+                            yield return new ReasoningDelta(1, thought.Text);
                         }
                         foreach (var delta in choice.Delta.ToolCalls ?? [])
                         {
@@ -211,7 +224,8 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                             tool.Arguments.Append(args);
                             if (!string.IsNullOrEmpty(args)) yield return new ToolArgumentsDelta(100 + delta.Index, args);
                         }
-                        foreach (var (key, value) in choice.Delta.Extra ?? []) opaqueFields[key] = value.Clone();
+                        foreach (var (key, value) in choice.Delta.Extra ?? [])
+                            if (!IsReasoningAlias(key, value)) opaqueFields[key] = value.Clone();
                     }
                     if (!string.IsNullOrEmpty(choice.FinishReason))
                     { sawTerminal = true; stop = MapFinishReason(choice.FinishReason); }
@@ -227,11 +241,12 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         if (!sawChunk) throw new ModelProviderException("ProviderUnavailable", "El servidor cerró el stream antes de enviar eventos.");
         if (!sawTerminal) throw new ModelProviderException("ProviderUnavailable", "El servidor interrumpió la respuesta antes de indicar que había terminado.");
         var content = new List<ContentBlock>();
-        if (reasoning.Length > 0)
+        if (reasoningField is not null)
         {
-            var block = new ReasoningBlock(reasoning.ToString(), ReasoningVisibility.Full, null);
+            var reasoningText = reasoning.ToString();
+            var block = new ReasoningBlock(reasoningText, ReasoningVisibility.Full, null);
             content.Add(block);
-            opaqueFields["reasoning_content"] = JsonSerializer.SerializeToElement(reasoning.ToString(), OpenAiJsonContext.Default.String);
+            opaqueFields[reasoningField] = JsonSerializer.SerializeToElement(reasoningText, OpenAiJsonContext.Default.String);
             yield return new BlockCompleted(1, block);
         }
         if (text.Length > 0)
@@ -268,19 +283,49 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         catch (JsonException ex) { throw new ModelProviderException("ProviderError", "SSE JSON inválido: " + ex.Message, null, ex); }
     }
 
+    private string ChatCompletionsUrl => _descriptor.BaseUrl.TrimEnd('/') + "/chat/completions";
+
     private HttpRequestMessage CreateHttpRequest(string requestJson, CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, _descriptor.BaseUrl.TrimEnd('/') + "/chat/completions")
+        var request = new HttpRequestMessage(HttpMethod.Post, ChatCompletionsUrl)
         {
             Content = new StringContent(requestJson, Encoding.UTF8, "application/json"),
         };
+        ApplyAuthentication(request, cancellationToken);
+        return request;
+    }
+
+    private void ApplyAuthentication(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
         if (_descriptor.Auth.Kind == AuthKind.ApiKey && _descriptor.Auth.SecretRef is not null)
         {
             var secret = _secrets.GetSecret(_descriptor.Auth.SecretRef, cancellationToken);
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret.Value());
         }
-        return request;
     }
+
+    private async System.Threading.Tasks.Task<bool> DetectLlamaCppAsync(CancellationToken cancellationToken)
+    {
+        // A successful metadata response from this endpoint may advertise its wire dialect.
+        // This is a read and does not enter the generation retry or usage accounting path.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(2));
+        try
+        {
+            using var http = _httpFactory();
+            var modelsUrl = _descriptor.BaseUrl.TrimEnd('/') + "/models";
+            using var probe = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
+            ApplyAuthentication(probe, deadline.Token);
+            using var response = await http.SendAsync(probe, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+            return AdvertisesLlamaCpp(response, modelsUrl);
+        }
+        catch (HttpRequestException) { return false; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return false; }
+    }
+
+    private static bool AdvertisesLlamaCpp(HttpResponseMessage response, string expectedUrl) =>
+        response.IsSuccessStatusCode && response.Headers.Server.Any(entry => entry.Product?.Name == "llama.cpp")
+        && response.RequestMessage?.RequestUri == new Uri(expectedUrl);
 
     private string BuildBody(ModelRequest request)
     {
@@ -289,7 +334,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         request.Model.Route?.ReasoningCapability.ValidateRequest(reasoning);
         // Response reasoning_content does not establish a request-side dialect for
         // arbitrary compatible endpoints. Reject rather than invent an extension.
-        var llamaCppReasoningOff = _descriptor.Profile == LlamaCppProfileName
+        var llamaCppReasoningOff = UsesLlamaCppDialect
             && reasoning is { Kind: "off", BudgetTokens: null };
         if (reasoning is not null && !llamaCppReasoningOff)
             throw new NotSupportedException("Selected reasoning has no representation in this adapter.");
@@ -357,6 +402,10 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                 ? new ChatStreamOptions(true) : null,
             MaxTokens = request.Model.MaxOutputTokens,
             ReasoningEffort = llamaCppReasoningOff ? "none" : null,
+            ReasoningBudgetTokens = _options.LimitAutomaticLocalReasoning && UsesLlamaCppDialect
+                && _descriptor.BillingMode == BillingMode.Local && reasoning is null
+                && request.Model.Route?.ReasoningCapability.Supported != false
+                    ? (int)Math.Min(128, (request.Model.MaxOutputTokens ?? 512) / 4) : null,
             ChatTemplateKwargs = llamaCppReasoningOff
                 ? new Dictionary<string, bool> { ["enable_thinking"] = false } : null,
             ToolChoice = request.ToolChoice.Mode switch
@@ -477,25 +526,38 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         var content = new List<ContentBlock>();
         var choice = response.Choices?.FirstOrDefault();
         var message = choice?.Message;
+        var thought = FindReasoning(message?.ReasoningContent, message?.Extra);
         if (message is not null)
         {
-            if (!string.IsNullOrEmpty(message.ReasoningContent)) content.Add(new ReasoningBlock(message.ReasoningContent, ReasoningVisibility.Full, null));
+            if (thought is { } reasoning) content.Add(new ReasoningBlock(reasoning.Text, ReasoningVisibility.Full, null));
             if (!string.IsNullOrEmpty(message.Content)) content.Add(new TextBlock(message.Content));
             foreach (var tool in message.ToolCalls ?? [])
                 content.Add(new ToolCallBlock(ToolCallId.New(), tool.Id, tool.Function?.Name ?? "", tool.Function?.Arguments ?? "{}"));
         }
         var usage = new TokenUsage(response.Usage?.PromptTokens ?? 0, response.Usage?.CompletionTokens ?? 0, 0, 0, 0);
-        var opaque = message?.Extra is null
-            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-            : new Dictionary<string, JsonElement>(message.Extra, StringComparer.Ordinal);
-        if (!string.IsNullOrEmpty(message?.ReasoningContent))
-            opaque["reasoning_content"] = JsonSerializer.SerializeToElement(message.ReasoningContent, OpenAiJsonContext.Default.String);
+        var opaque = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var (key, value) in message?.Extra ?? [])
+            if (!IsReasoningAlias(key, value)) opaque[key] = value;
+        if (thought is { } completeThought)
+            opaque[completeThought.Field] = JsonSerializer.SerializeToElement(completeThought.Text, OpenAiJsonContext.Default.String);
         var state = opaque.Count == 0 ? null :
             new ProviderState("openai.chat.ProviderOpaque/" + (string.IsNullOrEmpty(model) ? response.Model ?? "" : model),
                 JsonSerializer.Serialize(opaque, OpenAiJsonContext.Default.DictionaryStringJsonElement));
         return new ModelResponse(content, MapFinishReason(choice?.FinishReason), usage, state,
             new ProviderMetadata(requestId, response.Model ?? model, null), response.Usage?.Fields ?? TokenUsageFields.None);
     }
+
+    private static (string Field, string Text)? FindReasoning(string? reasoningContent, Dictionary<string, JsonElement>? extra)
+    {
+        if (!string.IsNullOrEmpty(reasoningContent)) return ("reasoning_content", reasoningContent);
+        if (extra?.TryGetValue("reasoning", out var alias) == true && alias.ValueKind == JsonValueKind.String
+            && alias.GetString() is { Length: > 0 } text)
+            return ("reasoning", text);
+        return null;
+    }
+
+    private static bool IsReasoningAlias(string key, JsonElement value) =>
+        key == "reasoning" && value.ValueKind is JsonValueKind.String or JsonValueKind.Null;
 
     private static StopReason MapFinishReason(string? finish) => finish switch
     {
@@ -568,6 +630,9 @@ internal sealed class ChatRequestDto
 {
     [JsonPropertyName("reasoning_effort")]
     public string? ReasoningEffort { get; set; }
+
+    [JsonPropertyName("reasoning_budget_tokens")]
+    public int? ReasoningBudgetTokens { get; set; }
 
     [JsonPropertyName("chat_template_kwargs")]
     public Dictionary<string, bool>? ChatTemplateKwargs { get; set; }

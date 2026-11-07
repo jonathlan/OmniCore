@@ -187,6 +187,7 @@ public sealed partial class TuiApp
                 case "think.open": if (app._overlay is null) app.ShowReasoningVisibility(); break;
                 case "sidebar.toggle": app.ToggleSidebar(); break;
                 case "model.select": if (app._overlay is null) app.ShowModelPicker(); break;
+                case "companion.chat.open": if (app._overlay is null) app.OpenCompanionHub("chat"); break;
                 case "preferences.open":
                     if (app._overlay?.Id == "theme-preferences") app.ReturnFromPreferencesSubpage();
                     else app.ShowPreferences();
@@ -225,7 +226,7 @@ public sealed partial class TuiApp
     private string KeyboardHelp(string text)
     {
         if (_keyBindings.Diagnostics.Count > 0) text = KeyBindingText("configuration_notice") + " · /keybindings · " + text;
-        var ids = new[] { "sidebar.toggle", "model.select", "preferences.open" };
+        var ids = new[] { "sidebar.toggle", "model.select", "preferences.open", "companion.chat.open" };
         for (var i = 0; i < ids.Length; i++) text = text.Replace("F" + (i + 2), "{keyboard" + i + "}", StringComparison.Ordinal);
         for (var i = 0; i < ids.Length; i++)
         {

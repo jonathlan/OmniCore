@@ -3,6 +3,7 @@ using OmniCore.Domain;
 using OmniCore.Protocol;
 using OmniCore.Security;
 using OmniCore.Engine;
+using OmniCore.Models;
 
 namespace OmniCore.Host;
 
@@ -140,8 +141,13 @@ public static class CompanionConversation
                 continuation = null; summary = fitted.Summary; compacted?.Invoke(summary); messages = fitted.Messages;
                 var first = Array.IndexOf(originalMessages, messages[0]); checkpoint?.Invoke(summary, first > 0 ? history[first - 1].Id : null);
             }
+            var capability = model.Route?.ReasoningCapability;
+            var finalReasoning = answerOnly && allowFinalAnswerPass && model.Reasoning is null
+                && provider is OpenAiChatCompatibleProvider { UsesLlamaCppDialect: true }
+                && capability?.Supported != false && (capability?.EffortLevels is not { } levels || levels.Contains("off"))
+                ? new ReasoningRequest("off", null) : null;
             var request = new ModelRequest(model, messages.ToArray(), stepInstruction + "\n<resumen_de_extractos>\n" + summary + "\n</resumen_de_extractos>", definitions,
-                canUseTools ? ToolChoice.Auto() : ToolChoice.None(), null, null, null, answerOnly ? null : continuation);
+                canUseTools ? ToolChoice.Auto() : ToolChoice.None(), null, finalReasoning, null, answerOnly ? null : continuation);
             starting?.Invoke(); ModelResponse? response = null;
             await foreach (var item in provider.StreamAsync(request, timeout.Token).ConfigureAwait(false))
                 if (item is ResponseCompleted completed) response = completed.Response;

@@ -7,7 +7,7 @@ using OmniCore.Models;
 
 /// <summary>Account-specific discovery, never an inference or a paid API-key fallback.</summary>
 public sealed record AvailableChatGptModel(string Id, string DisplayName, int? ContextWindow = null,
-    int? MaxOutputTokens = null, bool IsDefault = false);
+    int? MaxOutputTokens = null, bool IsDefault = false, IReadOnlyList<string>? ReasoningEffortLevels = null);
 
 public sealed class ChatGptModelCatalog
 {
@@ -82,9 +82,20 @@ public sealed class ChatGptModelCatalog
             if (visibility != "list") continue;
             if (result.Any(m => m.Id == id)) continue;
             result.Add(new(id, new string((String(item, "display_name") ?? id).Where(c => !char.IsControl(c)).ToArray()), Integer(item, "context_window"),
-                Integer(item, "max_output_tokens"), item.TryGetProperty("is_default", out var d) && d.ValueKind == JsonValueKind.True));
+                Integer(item, "max_output_tokens"), item.TryGetProperty("is_default", out var d) && d.ValueKind == JsonValueKind.True,
+                ReadEffortLevels(item)));
         }
         return result;
+    }
+
+    private static string[]? ReadEffortLevels(JsonElement model)
+    {
+        if (!model.TryGetProperty("supported_reasoning_levels", out var levels) || levels.ValueKind != JsonValueKind.Array)
+            return null;
+        return levels.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.Object)
+            .Select(item => String(item, "effort")).OfType<string>()
+            .Where(effort => OpenAIResponsesProvider.CanSendReasoningEffort(effort, ResponsesProfile.Codex))
+            .Distinct(StringComparer.Ordinal).ToArray();
     }
 
     private static string? String(JsonElement item, string name) => item.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

@@ -397,7 +397,7 @@ public sealed partial class TuiApp
         // (un Esc para cerrar un overlay mataría la TUI entera). F2/F3 igual: consumidas aquí.
         var code = key.KeyCode.ToString();
         if (code != "Esc") _lastEscapeAt = null;
-        if (code is "F2" or "F3" or "F4") { key.Handled = true; }
+        if (code is "F2" or "F3" or "F4" or "F5") { key.Handled = true; }
         else if (code == "F6") { ShowConversations(); key.Handled = true; }
         else if (key.KeyCode == (KeyCode.Tab | KeyCode.ShiftMask) && _overlay is null && _activeInteraction is null)
         { CycleMode(); key.Handled = true; }
@@ -3498,6 +3498,7 @@ public sealed partial class TuiApp
         foreach (var name in new[] { "new", "sessions", "resume-session", "rename-session", "clear", "compact", "model", "act", "mode", "runmode", "ultracode", "reasoning", "agents", "delegate", "agent", "join", "fanout" })
             if (shown.Add(name)) lines.Add("  /" + HumanCommandAliases.DisplayName(name, _locale) + " — " + CommandDescription("/" + name));
         lines.Add(_localization.Resolve("shell.help_keys"));
+        lines.Add("F5 — " + _localization.Resolve("palette.action.companion.chat.open"));
         lines.Add("F6 — " + _localization.Resolve("shell.conversation.title"));
         return string.Join("\n", lines);
     }

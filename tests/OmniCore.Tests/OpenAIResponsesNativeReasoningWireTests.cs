@@ -32,6 +32,7 @@ public sealed class OpenAIResponsesNativeReasoningWireTests
     [InlineData("Codex", "high")]
     [InlineData("Codex", "xhigh")]
     [InlineData("Codex", "max")]
+    [InlineData("Codex", "ultra")]
     public async Task Declared_fixture_effort_is_serialized_exactly_for_each_native_profile(
         string profileName, string effort)
     {
@@ -78,6 +79,7 @@ public sealed class OpenAIResponsesNativeReasoningWireTests
     [InlineData("Api", "provider-preview-level")]
     [InlineData("Codex", "provider-preview-level")]
     [InlineData("Api", "High")]
+    [InlineData("Api", "ultra")]
     [InlineData("Codex", "High")]
     public async Task Unmapped_declared_label_is_not_aliased_or_sent(string profileName, string label)
     {

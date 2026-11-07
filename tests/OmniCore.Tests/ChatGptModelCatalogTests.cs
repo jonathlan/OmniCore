@@ -42,7 +42,9 @@ public sealed class ChatGptModelCatalogTests
             {"models":[
               {"slug":"gpt-6.1-sol","visibility":"list"},
               {"slug":"gpt-6-astra","visibility":"list"},
-              {"slug":"gpt-6-sol","visibility":"list"},
+              {"slug":"gpt-6-sol","visibility":"list","supported_reasoning_levels":[
+                {"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"},{"effort":"ultra"},
+                {"effort":"ultra"},{"effort":"unknown-preview"},{"effort":12},null]},
               {"slug":"gpt-6-luna","visibility":"list"},
               {"slug":"gpt-reserve","visibility":"hide"},
               {"slug":"gpt-5.6-sol","visibility":"list"},
@@ -55,6 +57,9 @@ public sealed class ChatGptModelCatalogTests
         Assert.Contains("client_version=0.159.2", handler.Requests[1].Query);
         Assert.Equal(new[] { "gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
             "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna" }, result.Select(m => m.Id));
+        Assert.Equal(new[] { "low", "medium", "high", "xhigh", "max", "ultra" },
+            result.Single(model => model.Id == "gpt-6-sol").ReasoningEffortLevels);
+        Assert.Null(result.Single(model => model.Id == "gpt-6-luna").ReasoningEffortLevels);
     }
 
     [Theory]

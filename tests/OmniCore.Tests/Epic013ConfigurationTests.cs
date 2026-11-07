@@ -32,6 +32,16 @@ public sealed class Epic013ConfigurationTests
     }
 
     [Fact]
+    public void Legacy_no_auth_loads_without_a_credential_migration_notice()
+    {
+        var loaded = new ConfigLoader().Load(
+            "providers:\n  local: { baseUrl: http://127.0.0.1:8080, auth: none }\n", null);
+
+        Assert.Equal(AuthKind.None, loaded.Registry.Provider("local")!.Auth.Kind);
+        Assert.Empty(loaded.DeprecationNotices!);
+    }
+
+    [Fact]
     public void Legacy_provider_auth_forms_load_and_emit_one_localized_generic_deprecation_notice()
     {
         var loaded = new ConfigLoader().Load(

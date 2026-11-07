@@ -564,7 +564,8 @@ public sealed class OmniHost
         var settingsPath = Path.Combine(configDirectory, "settings.yaml");
         return new ConfigLoader().Load(File.Exists(providersPath) ? File.ReadAllText(providersPath) : null,
             File.Exists(modelsPath) ? File.ReadAllText(modelsPath) : null,
-            File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null);
+            File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null,
+            ChatGptCatalogReasoning.Read(configDirectory));
     }
 
     // Examples must not count as configured connections: doing so would disable
@@ -729,7 +730,7 @@ public sealed class OmniHost
         // StreamAsync owns and disposes each HttpClient returned by the factory; a shared instance
         // works for the first completion only, then every follow-up Turn fails as disposed.
         return new OpenAiChatCompatibleProvider(configured, secrets, CreateClient,
-            new OpenAiProviderOptions { CircuitCatalog = circuits });
+            new OpenAiProviderOptions { CircuitCatalog = circuits, LimitAutomaticLocalReasoning = true });
     }
 
     private static OpenRouterImageGenerationProvider ConnectOpenRouterImageGeneration(ProviderDescriptor descriptor,

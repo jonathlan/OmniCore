@@ -33,11 +33,12 @@ public sealed partial class TuiWiringTests
     {
         SeedPlaygroundPet(fx, "fox", 1); var host = new CompanionHubTurn(fx);
         fx.StartTui(turnHost: host, initialColumns: width, initialRows: height);
-        Type(fx, "/pet chat"); fx.InjectKey(new Key(KeyCode.Enter));
-        fx.Wait(() => Descendants(fx.App.MainWindow!).Any(v => v.Id == "companion-chat-input"), "mini chat nativo");
+        fx.Invoke(() => fx.App.Composer!.Text = "borrador principal sin enviar");
+        fx.InjectKey(new Key(KeyCode.F5));
+        fx.Wait(() => fx.Read(() => Descendants(fx.App.MainWindow!).Any(v => v.Id == "companion-chat-input" && v.HasFocus)),
+            "F5 abre el chat y enfoca el mensaje");
         fx.Wait(() => host.CompanionHub.Read().Instances.Length > 0, "instancia registrada");
         fx.Wait(() => HubView(fx, "companion-hub-action").Enabled, "historial preparado para enviar");
-        fx.Invoke(() => fx.App.Composer!.Text = "borrador principal sin enviar");
         Assert.Equal(0, host.Chats);
         fx.Invoke(() => { var input = HubView(fx, "companion-chat-input"); input.Text = "Hola mascota"; input.SetFocus(); });
         fx.InjectKey(new Key(KeyCode.Enter));

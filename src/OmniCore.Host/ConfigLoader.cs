@@ -20,6 +20,10 @@ public sealed class ConfigLoader
         Load(providersYaml, modelsYaml).Registry;
 
     public LoadedUserConfiguration Load(string? providersYaml, string? modelsYaml, string? settingsYaml = null)
+        => Load(providersYaml, modelsYaml, settingsYaml, null);
+
+    internal LoadedUserConfiguration Load(string? providersYaml, string? modelsYaml, string? settingsYaml,
+        ChatGptCatalogReasoning? chatGptReasoning)
     {
         var diagnostics = new List<ConfigDiagnostic>();
         ParseSettings(settingsYaml, diagnostics);
@@ -98,7 +102,8 @@ public sealed class ConfigLoader
                         ? new ReasoningCapability(reasoning.Supported, reasoning.EffortLevels,
                             reasoning.ReplayPolicy is null ? null : Enum.Parse<ReasoningReplayPolicy>(reasoning.ReplayPolicy),
                             reasoning.UltraCodeBudgetTokens, reasoning.UltraCodeOutputReserveTokens)
-                        : null, outputLimitConfigured: m.MaxOutput is not null,
+                        : chatGptReasoning?.ForModel(registry.Provider(m.Provider!), pair.Key),
+                    outputLimitConfigured: m.MaxOutput is not null,
                     inputModalities: m.InputModalities ?? ["text"], outputModalities: m.OutputModalities ?? ["text"],
                     imageGenerationMaxCostUsd: m.ImageGenerationMaxCostUsd));
             }
@@ -111,7 +116,7 @@ public sealed class ConfigLoader
         ValidateRouting(modelFile?.Routing, registry, diagnostics);
         if (diagnostics.Count != 0) throw new ConfigValidationException(diagnostics);
 
-        var notices = providerFile?.Providers?.Values.Any(provider => provider.Auth is not null) == true
+        var notices = providerFile?.Providers?.Values.Any(provider => provider.Auth is { IsNone: false, ApiKey: not null }) == true
             ? new[] { LocalizedText.Of("config.legacyAuthDeprecated") }
             : Array.Empty<LocalizedText>();
         return new LoadedUserConfiguration(registry, providerFile, modelFile, notices, settings);

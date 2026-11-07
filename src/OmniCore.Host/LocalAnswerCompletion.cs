@@ -9,7 +9,6 @@ internal static class LocalAnswerCompletion
 
     public static bool NeedsFinalAnswer(ModelResponse response) =>
         response.StopReason is StopReason.EndTurn or StopReason.MaxOutputTokens
-        && response.Content.Any(block => block is ReasoningBlock)
         && !response.Content.Any(block => block is ToolCallBlock or ImageBlock
             || block is TextBlock text && !string.IsNullOrWhiteSpace(text.Text));
 }

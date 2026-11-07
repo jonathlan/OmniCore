@@ -111,6 +111,36 @@ public sealed partial class TuiWiringTests
     }, noColor: false);
 
     [Fact]
+    public void Reasoning_subscription_levels_can_be_selected_and_saved_using_the_keyboard() => RunTuiTest(fx =>
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var policies = ModelPolicyHost.Create(Path.Combine(fx.Root, "subscription-reasoning"));
+        var account = new TestAccount { Current = new(true, "***1234", null, false),
+            Catalog = [new("subscription-model", "Subscription model",
+                ReasoningEffortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"])] };
+        fx.StartTui(policies, account, initialColumns: 80, initialRows: 25);
+        KeyWithEffect(fx, KeyCode.F3, () => fx.App.Overlay is not null, "F3 opens the picker");
+        fx.Wait(() => fx.Read(() => PickerItems(fx).Any(item => item.Contains("Subscription model"))), "the catalog is refreshed");
+        ChoosePickerItem(fx, "Subscription model");
+        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-preferences", "effort menu opened");
+        var options = fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single());
+        var rows = fx.Read(() => options.Source!.ToList().Cast<string>().ToArray());
+        Assert.Equal(new[] { "Restablecer / heredar", "Sin solicitud de esfuerzo", "Bajo (low)", "Medio (medium)",
+            "Alto (high)", "Muy alto (xhigh)", "Máximo (max)", "Ultra (ultra)" }, rows);
+        fx.InjectKey(new Key(KeyCode.End));
+        fx.Wait(() => options.SelectedItem == 7, "End scrolls to Ultra");
+        fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => fx.Read(() => fx.App.Overlay is { } overlay
+            && Descendants(overlay).OfType<Button>().Any(b => b.Id == "reasoning-apply" && b.HasFocus)),
+            "Enter on Ultra focuses Apply");
+        var run = fx.Server.Query("runReasoningPreference", ct)?.Json;
+        Assert.DoesNotContain("\"ultra\"", run ?? "");
+        fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-visibility", "second Enter applies the effort and asks about visibility");
+        Assert.Contains("\"kind\":\"ultra\"", fx.Server.Query("runReasoningPreference", ct)!.Json);
+    });
+
+    [Fact]
     public void Reasoning_run_off_is_applied_to_run_without_changing_the_user_default() => RunTuiTest(fx =>
     {
         fx.StartTui();
@@ -130,18 +160,35 @@ public sealed partial class TuiWiringTests
     [Fact]
     public void Reasoning_visibility_is_a_draft_until_apply_and_does_not_change_effort() => RunTuiTest(fx =>
     {
-        fx.StartTui();
+        fx.StartTui(initialColumns: 80, initialRows: 25);
         var before = fx.Server.Query("reasoningPreference", TestContext.Current.CancellationToken)?.Json;
-        fx.Invoke(() => fx.App.ShowReasoningVisibility());
-        ClickId(fx, "reasoning-hidden");
+        bool HasFocus(string id) => fx.App.Overlay is { } overlay
+            && Descendants(overlay).OfType<Button>().Any(button => button.Id == id && button.HasFocus);
+        void Press(KeyCode key, Func<bool> effect, string message)
+        {
+            fx.InjectKey(new Key(key));
+            fx.Wait(effect, message);
+        }
+        void OpenAndSelectHide()
+        {
+            fx.Invoke(() => fx.App.ShowReasoningVisibility());
+            fx.Wait(() => HasFocus("reasoning-visible"), "the saved Show choice is focused");
+            Press(KeyCode.CursorDown, () => HasFocus("reasoning-hidden"), "Down focuses Hide");
+            Press(KeyCode.Enter, () => HasFocus("reasoning-visibility-apply"), "Enter on Hide focuses Apply");
+            Assert.True(fx.App.ShowReportedReasoning);
+        }
+        OpenAndSelectHide();
+        Press(KeyCode.Esc, () => fx.App.Overlay is null, "Esc cancels the draft");
         Assert.True(fx.App.ShowReportedReasoning);
-        ClickId(fx, "security-back");
-        Assert.True(fx.App.ShowReportedReasoning);
-        fx.Invoke(() => fx.App.ShowReasoningVisibility());
-        ClickId(fx, "reasoning-hidden");
-        ClickId(fx, "reasoning-visibility-apply");
+        OpenAndSelectHide();
+        Press(KeyCode.Enter, () => fx.App.Overlay is null && fx.App.Composer!.HasFocus, "Enter on Apply saves and returns to the composer");
         Assert.False(fx.App.ShowReportedReasoning);
         Assert.Equal(before, fx.Server.Query("reasoningPreference", TestContext.Current.CancellationToken)?.Json);
+        fx.Invoke(() => fx.App.ShowReasoningVisibility());
+        fx.Wait(() => HasFocus("reasoning-hidden"), "reopening focuses the saved Hide choice");
+        Press(KeyCode.CursorUp, () => HasFocus("reasoning-visible"), "Up focuses Show");
+        Press(KeyCode.Tab, () => HasFocus("reasoning-hidden"), "Tab moves to the next choice");
+        Press(KeyCode.Enter, () => HasFocus("reasoning-visibility-apply"), "the selected choice can be confirmed again");
     });
 
     [Fact]

@@ -46,6 +46,7 @@ public sealed class LocalEnginePreferencesTests
         var loaded = new ConfigLoader().Load(File.ReadAllText(fixture.Providers), models);
         Assert.Equal("fixture-secret-reference", loaded.Registry.Provider("cloud")!.Auth.SecretRef);
         Assert.Equal(2.5m, loaded.Providers!.Providers!["cloud"].InputPricePerMillionUsd);
+        Assert.Null(loaded.Providers.Providers["local"].Auth);
         Assert.DoesNotContain("fixture-secret-reference", saved.ToString());
     }
 
@@ -81,7 +82,7 @@ public sealed class LocalEnginePreferencesTests
         var provider = configuration.Providers!.Providers!["local"];
         Assert.Null(provider.Managed);
         Assert.Equal("attach", provider.Host);
-        Assert.True(provider.Auth!.IsNone);
+        Assert.Null(provider.Auth);
     }
 
     [Fact]

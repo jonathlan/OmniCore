@@ -1,6 +1,7 @@
 namespace OmniCore.Tests;
 
 using OmniCore.Host;
+using OmniCore.Domain;
 
 public sealed class ModelCatalogRegistrationTests
 {
@@ -81,6 +82,39 @@ public sealed class ModelCatalogRegistrationTests
             withNote.AllowOrchestration,
             withNote.MaxGenerationSeconds,
         });
+    }
+
+    [Fact]
+    public void Refresh_backfills_effort_for_existing_models_without_editing_user_reasoning()
+    {
+        using var directory = new CatalogDirectory();
+        using var host = ModelPolicyHost.Create(directory.Root);
+        var ct = TestContext.Current.CancellationToken;
+        var workspace = ModelPolicyHost.WorkspaceSelectionId(directory.Root);
+        AvailableChatGptModel[] catalog = [new("discovered", "Discovered"), new("manual", "Manual")];
+        host.ApplyChatGptCatalog(catalog, workspace, ct);
+        var modelsPath = Path.Combine(directory.Config, "models.yaml");
+        var originalYaml = File.ReadAllText(modelsPath).ReplaceLineEndings("\n");
+        var yaml = originalYaml.Replace("  manual:\n", "  manual:\n    reasoning: {supported: true, effortLevels: [high]}\n",
+            StringComparison.Ordinal);
+        Assert.NotEqual(originalYaml, yaml);
+        File.WriteAllText(modelsPath, yaml);
+        Assert.Null(host.ReadReasoningCapability("discovered")!.Supported);
+        host.ApplyChatGptCatalog([catalog[0] with { ReasoningEffortLevels = ["low", "ultra"] },
+            catalog[1] with { ReasoningEffortLevels = ["low", "ultra"] }], workspace, ct);
+        Assert.Equal(yaml, File.ReadAllText(modelsPath));
+        using var restarted = ModelPolicyHost.Create(directory.Root);
+        Assert.Equal(new[] { "low", "ultra" }, restarted.ReadReasoningCapability("discovered")!.EffortLevels);
+        Assert.Equal(new[] { "high" }, restarted.ReadReasoningCapability("manual")!.EffortLevels);
+        var registry = OmniHost.LoadModelRegistry(directory.Config);
+        var route = ModelRoutingHost.RouteFor(registry.Model("discovered")!, registry.Provider("chatgpt"));
+        var preference = new RunReasoningSelectionState(1, true, new ReasoningRequest("ultra", null), "User", null);
+        var resolution = OmniCliRuntime.ResolveReasoningResolution(preference, null, route.ReasoningCapability,
+            null, null, null, ProviderFamily.OpenAIResponses, "codex");
+        Assert.Equal("ultra", resolution.AppliedRequest?.Kind);
+        restarted.ApplyChatGptCatalog([catalog[0] with { ReasoningEffortLevels = [] }, catalog[1]], workspace, ct);
+        Assert.Null(host.ReadReasoningCapability("discovered")!.Supported);
+        Assert.Equal(new[] { "high" }, host.ReadReasoningCapability("manual")!.EffortLevels);
     }
 
     [Fact]

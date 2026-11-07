@@ -28,7 +28,6 @@ providers:
     profile: codex
     billingMode: IncludedQuota
     baseUrl: https://chatgpt.com/backend-api
-    auth: none
 
   # Ejemplo de proveedor Anthropic (OAuth con identidad de Claude Code)
   # Usa los mismos valores que Pi para compatibilidad con el flujo OAuth de Claude Code.

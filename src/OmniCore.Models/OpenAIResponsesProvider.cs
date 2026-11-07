@@ -182,6 +182,10 @@ public sealed class OpenAIResponsesProvider : IModelProvider, IReportsRateLimits
         "omnicore/" + version + " (" + System.Runtime.InteropServices.RuntimeInformation.OSDescription.Split(' ')[0].ToLowerInvariant()
         + "; " + System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant() + ")";
 
+    public static bool CanSendReasoningEffort(string? effort, ResponsesProfile profile) =>
+        effort is "none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max"
+        || profile == ResponsesProfile.Codex && effort == "ultra";
+
     internal static string BuildBody(ModelRequest request, OpenAIResponsesOptions options)
     {
         var wireNames = ToolNameWireMap.ForRequest(request, 64);
@@ -191,9 +195,8 @@ public sealed class OpenAIResponsesProvider : IModelProvider, IReportsRateLimits
         // that every model accepts every value. Never silently drop a selected request.
         if (reasoning?.BudgetTokens is not null)
             throw new NotSupportedException("Numeric reasoning budgets are not represented by the Responses adapter.");
-        var effort = reasoning?.Kind is "none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max"
-            ? reasoning.Kind : null;
-        if (reasoning is not null && effort is null)
+        var effort = reasoning?.Kind;
+        if (reasoning is not null && !CanSendReasoningEffort(effort, options.Profile))
             throw new NotSupportedException("Selected reasoning effort is not represented by the Responses adapter.");
         var maxOutput = request.Model.MaxOutputTokens;
         if (options.MaxOutputTokens is { } configured)

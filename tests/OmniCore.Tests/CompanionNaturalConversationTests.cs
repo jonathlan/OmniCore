@@ -41,11 +41,13 @@ public sealed class CompanionNaturalConversationTests : IDisposable
         Assert.Single(provider.Requests);
     }
 
-    [Fact]
-    public async Task Companion_local_harness_requests_one_final_answer_without_replaying_reasoning_or_tools()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Companion_local_harness_requests_one_final_answer_without_replaying_reasoning_or_tools(bool hasReasoning)
     {
         var provider = new CompanionToolsTests.ScriptedProvider([
-            CompanionToolsTests.Response([new ReasoningBlock("private scratchpad", ReasoningVisibility.Full, null)]),
+            CompanionToolsTests.Response(hasReasoning ? [new ReasoningBlock("private scratchpad", ReasoningVisibility.Full, null)] : []),
             CompanionToolsTests.Response([new TextBlock("Sí, aquí estoy.")])]);
         var text = await CompanionConversation.Reply(provider, new(new("local"), 8192, ToolMode.Direct, null),
             "Omni", "", [new("user", "¿Estás ahí?")], TestContext.Current.CancellationToken,

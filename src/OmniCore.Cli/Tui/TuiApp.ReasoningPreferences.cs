@@ -8,6 +8,7 @@ using OmniCore.Domain;
 using OmniCore.Host;
 using OmniCore.Protocol;
 using Terminal.Gui.Drivers;
+using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -90,12 +91,23 @@ public sealed partial class TuiApp
             new Label { X = 2, Y = 13, Width = Dim.Fill(2), Height = 2, Text = ControlText("visibility_scope") });
         var show = new Button { Id = "reasoning-visible", X = 2, Y = 7, Width = Dim.Fill(2), TextAlignment = Alignment.Start };
         var hide = new Button { Id = "reasoning-hidden", X = 2, Y = 9, Width = Dim.Fill(2), TextAlignment = Alignment.Start };
-        void Sync() { show.Text = (draft ? "● " : "○ ") + ControlText("visible"); hide.Text = (!draft ? "● " : "○ ") + ControlText("hidden"); }
-        show.Accepted += (_, _) => { draft = true; Sync(); };
-        hide.Accepted += (_, _) => { draft = false; Sync(); };
         var apply = new Button { Id = "reasoning-visibility-apply", X = Pos.AnchorEnd(18), Y = Pos.AnchorEnd(2), Text = ControlText("apply") };
+        void Sync() { show.Text = (draft ? "● " : "○ ") + ControlText("visible"); hide.Text = (!draft ? "● " : "○ ") + ControlText("hidden"); }
+        void Choose(bool visible) { draft = visible; Sync(); apply.SetFocus(); }
+        show.Accepted += (_, args) => { args.Handled = true; Choose(true); };
+        hide.Accepted += (_, args) => { args.Handled = true; Choose(false); };
+        foreach (var choice in new[] { show, hide })
+            choice.KeyDown += (_, key) =>
+            {
+                if (key.Handled || key.KeyCode is not (KeyCode.CursorUp or KeyCode.CursorDown)) return;
+                key.Handled = true;
+                (key.KeyCode == KeyCode.CursorUp ? show : hide).SetFocus();
+            };
         apply.Accepted += (_, _) => SetReasoningVisibility(draft);
-        Sync(); frame.Add(show, hide, apply); ControlBack(frame); OpenControlFrame(frame, show);
+        Sync(); frame.Add(show, hide, apply);
+        var back = ControlBack(frame);
+        EnterNavigation.TraverseTabs(show, hide, apply, back);
+        OpenControlFrame(frame, draft ? show : hide);
     }
 
     internal void SetReasoningVisibility(bool show)
@@ -157,7 +169,7 @@ public sealed partial class TuiApp
         string KindLabel(string kind) => kind switch
         {
             "reset" or "off" => ControlText(kind),
-            "minimal" or "low" or "medium" or "high" or "xhigh" or "max" or "budget" or "adaptive"
+            "minimal" or "low" or "medium" or "high" or "xhigh" or "max" or "ultra" or "budget" or "adaptive"
                 => ControlText("effort." + kind) + " (" + kind + ")",
             _ => kind,
         };
@@ -180,8 +192,12 @@ public sealed partial class TuiApp
             apply.Enabled = _client is ITrustedUserActionClient && selection.Revision is not null;
             BudgetState();
         }
-        active.Accepted += (_, _) => { forRun = true; Sync(); detail.Text = ControlText("reasoning_scope"); };
-        future.Accepted += (_, _) => { forRun = false; Sync(); detail.Text = ControlText("reasoning_scope"); };
+        void ChooseScope(bool useRun)
+        {
+            forRun = useRun; Sync(); detail.Text = ControlText("reasoning_scope"); options.SetFocus();
+        }
+        active.Accepted += (_, args) => { args.Handled = true; ChooseScope(true); };
+        future.Accepted += (_, args) => { args.Handled = true; ChooseScope(false); };
         options.ValueChanged += (_, _) =>
         {
             BudgetState();
@@ -227,7 +243,8 @@ public sealed partial class TuiApp
             }
             catch (Exception) { detail.Text = _localization.Resolve("shell.reasoning_change_rejected"); }
         };
-        EnterNavigation.Focus(apply, options, budget);
+        EnterNavigation.Focus(() => budget.Visible ? budget : apply, options);
+        EnterNavigation.Focus(apply, budget);
         Sync(); frame.Add(heading, active, future, status, options, budgetLabel, budget, detail, apply); ControlBack(frame);
         OpenControlFrame(frame, options);
     }

@@ -10,6 +10,30 @@ using OmniCore.Models;
 public sealed class OpenAiChatCompatibleMediaSerializationTests
 {
     [Theory]
+    [InlineData("llama.cpp", true)]
+    [InlineData("vllm", false)]
+    public void Automatic_reasoning_is_bounded_only_after_a_confirmed_local_llama_probe(string server, bool llama)
+    {
+        using var handler = new CaptureHandler(server: server);
+        var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
+            "http://127.0.0.1:9999/v1", AuthConfig.None(), false, false, true)
+        { BillingMode = BillingMode.Local, LocalHost = new LocalHostConfig(LocalHostMode.Attach, Declared: true) };
+        var provider = new OpenAiChatCompatibleProvider(descriptor, new NoSecrets(), () => new HttpClient(handler, false),
+            new OpenAiProviderOptions { LimitAutomaticLocalReasoning = true });
+        var request = new ModelRequest(new ModelSelection(new ModelIdValue("fixture-model"), 4096, ToolMode.Direct, null,
+            maxOutputTokens: 120), [new ModelMessage(MessageRole.User, [new TextBlock("Question")])],
+            null, [], ToolChoice.None(), null, null, null, null);
+
+        provider.Complete(request, TestContext.Current.CancellationToken);
+        provider.Complete(request, TestContext.Current.CancellationToken);
+        Assert.Equal(1, handler.MetadataQueries);
+        Assert.Equal(llama, provider.UsesLlamaCppDialect);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(llama, body.RootElement.TryGetProperty("reasoning_budget_tokens", out var budget));
+        if (llama) Assert.Equal(30, budget.GetInt32());
+    }
+
+    [Theory]
     [InlineData(BillingMode.Local, false, "null", TokenUsageFields.None, 0, 0)]
     [InlineData(BillingMode.Local, false, "{}", TokenUsageFields.None, 0, 0)]
     [InlineData(BillingMode.Local, false, "{\"prompt_tokens\":14}", TokenUsageFields.Input, 14, 0)]
@@ -43,11 +67,16 @@ public sealed class OpenAiChatCompatibleMediaSerializationTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async System.Threading.Tasks.Task Chat_stream_preserves_terminal_answer_at_eof_and_rejects_incomplete_streams(bool complete)
+    [InlineData(true, "reasoning_content")]
+    [InlineData(true, "reasoning")]
+    [InlineData(false, "reasoning_content")]
+    [InlineData(false, "reasoning")]
+    public async System.Threading.Tasks.Task Chat_stream_preserves_terminal_answer_at_eof_and_rejects_incomplete_streams(
+        bool complete, string reasoningField)
     {
-        const string reasoning = "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"draft\"}}]}\n\n";
+        string ReasoningEvent(string fragment) =>
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"" + reasoningField + "\":\"" + fragment + "\"}}]}\n\n";
+        var reasoning = ReasoningEvent("private ") + ReasoningEvent("draft");
         const string final = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"visible answer\"},\"finish_reason\":\"stop\"}]}";
         using var handler = new CaptureHandler(complete ? reasoning + final : reasoning);
         var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
@@ -69,7 +98,11 @@ public sealed class OpenAiChatCompatibleMediaSerializationTests
         await Read();
         var result = Assert.Single(events.OfType<ResponseCompleted>()).Response;
         Assert.Equal("visible answer", Assert.Single(result.Content.OfType<TextBlock>()).Text);
-        Assert.Single(result.Content.OfType<ReasoningBlock>());
+        Assert.Equal("private draft", Assert.Single(result.Content.OfType<ReasoningBlock>()).VisibleText);
+        Assert.Equal("private draft", string.Concat(events.OfType<ReasoningDelta>().Select(delta => delta.Text)));
+        Assert.Equal("visible answer", Assert.Single(events.OfType<TextDelta>()).Text);
+        using var opaque = JsonDocument.Parse(result.State!.PayloadJson);
+        Assert.Equal("private draft", opaque.RootElement.GetProperty(reasoningField).GetString());
     }
 
     [Theory]
@@ -197,12 +230,25 @@ public sealed class OpenAiChatCompatibleMediaSerializationTests
     private sealed class CaptureHandler : HttpMessageHandler
     {
         public string? Body { get; private set; }
+        public int MetadataQueries { get; private set; }
         private readonly string _response;
-        public CaptureHandler(string? response = null) => _response = response ??
-            "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        private readonly string? _server;
+        public CaptureHandler(string? response = null, string? server = null)
+        {
+            _response = response ?? "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+            _server = server;
+        }
         protected override async System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Get)
+            {
+                Assert.Equal("/v1/models", request.RequestUri!.AbsolutePath);
+                MetadataQueries++;
+                var metadata = new HttpResponseMessage(HttpStatusCode.OK) { RequestMessage = request };
+                if (_server is not null) metadata.Headers.Server.ParseAdd(_server);
+                return metadata;
+            }
             Body = await request.Content!.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {

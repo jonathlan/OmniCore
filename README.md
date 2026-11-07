@@ -102,6 +102,11 @@ explícito. La consulta no genera texto, no cambia tu modelo seleccionado ni sus
 - `/pensamiento` (`/think`): ajustar la presentación del razonamiento disponible.
 
 Esfuerzo, visibilidad del razonamiento y permisos son controles independientes.
+Para actualizar los niveles de un modelo de ChatGPT ya registrado, abre
+**F3** y actualiza el catálogo de ChatGPT. Vuelve a seleccionar el modelo o abre
+`/esfuerzo`: las flechas recorren los niveles y Enter lleva a **Aplicar**.
+En `/think`, Enter sobre **Mostrar** u **Ocultar** también lleva a **Aplicar**;
+Esc descarta el cambio.
 Cambiar de modelo conserva la conversación; una selección incompatible se valida
 antes de invocar al proveedor. El costo y la cuota desconocidos se muestran como
 tales, sin convertirlos en cero ni en un cargo estimado de suscripción.
@@ -593,6 +598,7 @@ dotnet run --project src/OmniCore.Cli -- tui
 | `F1` / `Ctrl+F1` | Modo / permisos de ejecución |
 | `Ctrl+P` | Paleta global de comandos |
 | `F2` / `F3` / `F4` | Panel lateral / elegir modelo / ajustes |
+| `F5` | Abrir el chat de la mascota |
 | `F6` | Buscar y retomar conversaciones del espacio de trabajo |
 | `↑` / `↓` en el selector | Navegación vertical y circular |
 | `↑` / `↓` en categorías de Preferencias | Recorrer el menú en ciclo sin entrar a los campos |

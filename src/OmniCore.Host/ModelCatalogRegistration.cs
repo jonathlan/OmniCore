@@ -22,10 +22,11 @@ internal static class ModelCatalogRegistration
         using var lease = ProviderConfigurationLease.Acquire(directory);
         var providerPath = Path.Combine(directory, "providers.yaml");
         var modelPath = Path.Combine(directory, "models.yaml");
+        var reasoningPath = Path.Combine(directory, ChatGptCatalogReasoning.FileName);
         var oldProviders = File.Exists(providerPath) ? File.ReadAllText(providerPath) : null;
         var oldModels = File.Exists(modelPath) ? File.ReadAllText(modelPath) : null;
         var loaded = new ConfigLoader().Load(oldProviders, oldModels);
-        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080, auth: none }\n");
+        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080 }\n");
         var models = Parse(oldModels ?? (oldProviders is null ? "models:\n  local-worker: { provider: local, context: 8192 }\n" : "models: {}\n"));
         var providerMap = (YamlMappingNode)providers.Children[new YamlScalarNode("providers")];
         var providerId = loaded.Providers?.Providers?.FirstOrDefault(p => p.Value.Family == "OpenAIResponses" && p.Value.Profile == "codex").Key;
@@ -36,7 +37,7 @@ internal static class ModelCatalogRegistration
             providerMap.Add(providerId, new YamlMappingNode
             {
                 { "family", "OpenAIResponses" }, { "profile", "codex" },
-                { "baseUrl", "https://chatgpt.com/backend-api" }, { "auth", "none" }
+                { "baseUrl", ChatGptCatalogReasoning.BaseUrl }
             });
         }
         foreach (var model in catalog)
@@ -58,7 +59,13 @@ internal static class ModelCatalogRegistration
                 entry.Add("maxOutput", new YamlScalarNode(Math.Min(context, output).ToString(CultureInfo.InvariantCulture)));
             ((YamlMappingNode)models.Children[new YamlScalarNode("models")]).Add(model.Id, entry);
         }
-        if (catalog.All(m => loaded.Registry.Model(m.Id) is not null) && loaded.Registry.Provider(providerId) is not null) return providerId;
+        var oldReasoning = discovery ? Read(reasoningPath) : null;
+        var newReasoning = discovery ? ChatGptCatalogReasoning.Serialize(providerId, catalog) : null;
+        if (catalog.All(m => loaded.Registry.Model(m.Id) is not null) && loaded.Registry.Provider(providerId) is not null)
+        {
+            if (newReasoning != oldReasoning) Restore(reasoningPath, newReasoning);
+            return providerId;
+        }
         var newProviders = Save(providers);
         var newModels = Save(models);
         _ = new ConfigLoader().Load(newProviders, newModels); // Validate both before touching either file.
@@ -66,11 +73,13 @@ internal static class ModelCatalogRegistration
         if (oldProviders is not null) File.Copy(providerPath, providerPath + suffix);
         if (oldModels is not null) File.Copy(modelPath, modelPath + suffix);
         // Fail closed if configuration changed while the form was being saved.
-        if (Read(providerPath) != oldProviders || Read(modelPath) != oldModels) throw new IOException("Configuration changed concurrently.");
+        if (Read(providerPath) != oldProviders || Read(modelPath) != oldModels
+            || discovery && Read(reasoningPath) != oldReasoning) throw new IOException("Configuration changed concurrently.");
         try
         {
             WriteAtomic(providerPath, newProviders);
             WriteAtomic(modelPath, newModels);
+            if (newReasoning != oldReasoning) Restore(reasoningPath, newReasoning);
         }
         catch
         {

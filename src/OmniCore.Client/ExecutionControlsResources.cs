@@ -39,6 +39,7 @@ public static class ExecutionControlsResources
         ["effort.high"] = ["Alto", "High", "Élevé", "Alto"],
         ["effort.xhigh"] = ["Muy alto", "Very high", "Très élevé", "Molto alto"],
         ["effort.max"] = ["Máximo", "Maximum", "Maximum", "Massimo"],
+        ["effort.ultra"] = ["Ultra", "Ultra", "Ultra", "Ultra"],
         ["effort.budget"] = ["Presupuesto de tokens", "Token budget", "Budget de tokens", "Budget di token"],
         ["effort.adaptive"] = ["Adaptativo", "Adaptive", "Adaptatif", "Adattivo"],
         ["model_selected"] = ["Modelo seleccionado. Puedes ajustar su esfuerzo antes del siguiente mensaje.", "Model selected. You can adjust its effort before the next message.", "Modèle sélectionné. Vous pouvez ajuster son effort avant le prochain message.", "Modello selezionato. Puoi regolarne lo sforzo prima del prossimo messaggio."],
@@ -52,7 +53,7 @@ public static class ExecutionControlsResources
         ["visible"] = ["Mostrar", "Show", "Afficher", "Mostra"],
         ["hidden"] = ["Ocultar", "Hide", "Masquer", "Nascondi"],
         ["visibility_help"] = ["Muestra sólo el texto de razonamiento que el proveedor hace visible. Algunos envían un resumen o no envían texto. No revela contenido privado ni cambia el esfuerzo.", "Shows only reasoning text made visible by the provider. Some return a summary or no text. It does not reveal private content or change effort.", "Affiche uniquement le texte de raisonnement rendu visible par le fournisseur. Certains renvoient un résumé ou aucun texte. Ne révèle rien de privé et ne change pas l’effort.", "Mostra solo il testo di ragionamento reso visibile dal provider. Alcuni restituiscono un riepilogo o nessun testo. Non rivela contenuti privati e non cambia lo sforzo."],
-        ["visibility_scope"] = ["Preferencia de visualización guardada para esta TUI.", "Saved display preference for this TUI.", "Préférence d’affichage enregistrée pour cette TUI.", "Preferenza di visualizzazione salvata per questa TUI."],
+        ["visibility_scope"] = ["↑↓ Elegir · Enter seleccionar y luego aplicar · Esc volver sin guardar.", "↑↓ Choose · Enter select, then apply · Esc go back without saving.", "↑↓ Choisir · Entrée sélectionner, puis appliquer · Échap revenir sans enregistrer.", "↑↓ Scegli · Invio seleziona, poi applica · Esc torna senza salvare."],
         ["reasoning_changed"] = ["La ruta o la sesión cambió. Cierra y vuelve a abrir este menú antes de aplicar.", "The route or session changed. Close and reopen this menu before applying.", "La route ou la session a changé. Fermez et rouvrez ce menu avant d’appliquer.", "La route o la sessione è cambiata. Chiudi e riapri questo menu prima di applicare."],
     };
 

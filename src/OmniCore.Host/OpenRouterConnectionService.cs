@@ -636,7 +636,7 @@ internal static class OpenRouterRegistration
         }
         var refs = loaded.Registry.Providers().Select(p => p.Auth.SecretRef).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
         if (refs.Contains(expectedSecretRef)) throw new ProviderConnectionException("configurationChanged", "OpenRouter credential reference became occupied.");
-        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080, auth: none }\n");
+        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080 }\n");
         var providerMap = (YamlMappingNode)providers.Children[new YamlScalarNode("providers")];
         providerMap.Add(expectedId, new YamlMappingNode {
             { "family", "OpenAiChatCompatible" }, { "baseUrl", OpenRouterApi.ApiBaseUrl.TrimEnd('/') },

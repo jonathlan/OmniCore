@@ -23,6 +23,7 @@ public static class CommandPaletteResources
         ["action.sidebar.toggle"] = ["Mostrar u ocultar panel", "Toggle sidebar", "Afficher ou masquer le panneau", "Mostra o nascondi pannello"],
         ["action.model.select"] = ["Seleccionar modelo", "Select model", "Choisir un modèle", "Seleziona modello"],
         ["action.preferences.open"] = ["Abrir preferencias", "Open preferences", "Ouvrir les préférences", "Apri preferenze"],
+        ["action.companion.chat.open"] = ["Abrir chat de la mascota", "Open companion chat", "Ouvrir le chat de la mascotte", "Apri la chat della mascotte"],
         ["action.keybindings.open"] = ["Configurar atajos de teclado", "Keyboard shortcuts", "Raccourcis clavier", "Scorciatoie da tastiera"],
         ["action.mode.open"] = ["Cambiar modo · /modo", "Change mode · /mode", "Changer de mode · /mode", "Cambia modalità · /modalità"],
         ["action.permissions.open"] = ["Permisos de ejecución · /permiso", "Execution permissions · /permissions", "Autorisations · /autorisations", "Permessi di esecuzione · /permessi"],

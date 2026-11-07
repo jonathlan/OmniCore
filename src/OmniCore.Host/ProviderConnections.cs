@@ -986,7 +986,7 @@ internal static class ProviderConnectionRegistration
             return (existing, existingProvider.BaseUrl);
         }
 
-        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080, auth: none }\n");
+        var providers = Parse(oldProviders ?? "providers:\n  local: { baseUrl: http://127.0.0.1:8080 }\n");
         var providerMap = (YamlMappingNode)providers.Children[new YamlScalarNode("providers")];
         var providerId = FreeAnthropicProviderId(providerMap.Children.Keys
             .OfType<YamlScalarNode>().Select(key => key.Value ?? ""));

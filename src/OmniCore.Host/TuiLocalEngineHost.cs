@@ -105,7 +105,7 @@ public sealed partial class TuiLocalEngineHost : ITuiLocalEngineHost, ILocalEngi
             // Preserve the implicit local provider if creating the first providers file,
             // so existing models.yaml references to it do not suddenly become dangling.
             var root = Parse(loaded.Providers?.Providers is null ?
-                "providers:\n  local:\n    family: OpenAiChatCompatible\n    baseUrl: http://127.0.0.1:8080\n    auth: none\n    billingMode: Local\n" : original.Providers!);
+                "providers:\n  local:\n    family: OpenAiChatCompatible\n    baseUrl: http://127.0.0.1:8080\n    billingMode: Local\n" : original.Providers!);
             var providersKey = new YamlScalarNode("providers");
             if (!root.Children.TryGetValue(providersKey, out var providerNode))
                 root.Children.Add(providersKey, providerNode = new YamlMappingNode());
@@ -113,10 +113,12 @@ public sealed partial class TuiLocalEngineHost : ITuiLocalEngineHost, ILocalEngi
             var id = new YamlScalarNode(draft.ProviderId);
             if (!providers.Children.TryGetValue(id, out var node))
             {
-                node = new YamlMappingNode { { "family", "OpenAiChatCompatible" }, { "auth", "none" }, { "billingMode", "Local" } };
+                node = new YamlMappingNode { { "family", "OpenAiChatCompatible" }, { "billingMode", "Local" } };
                 providers.Children.Add(id, node);
             }
             if (node is not YamlMappingNode provider) throw Error("configurationInvalid");
+            if (loaded.Providers?.Providers?.GetValueOrDefault(draft.ProviderId)?.Auth?.IsNone == true)
+                provider.Children.Remove(new YamlScalarNode("auth"));
             Put(provider, "host", draft.Mode);
             Put(provider, "baseUrl", draft.BaseUrl.Trim());
             if (draft.Mode == "managed")
