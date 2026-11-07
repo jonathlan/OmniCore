@@ -5,7 +5,7 @@ using Terminal.Gui.Views;
 namespace OmniCore.Cli;
 
 /// <summary>A one-row native button with no reserved shadow row, including during initialization.</summary>
-internal sealed class CompanionRowButton : Button
+internal sealed class CompactRowButton : Button
 {
     protected override void OnInitializingShadowStyle(ValueChangingEventArgs<ShadowStyles?> args)
     {

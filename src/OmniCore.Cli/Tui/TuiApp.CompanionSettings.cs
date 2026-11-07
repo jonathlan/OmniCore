@@ -44,9 +44,9 @@ public sealed partial class TuiApp
         CompanionMemoryEntry? SelectedFact() => memory.SelectedItem is { } i && i >= 0 && i < entries.Length ? entries[i] : null;
         void Report(Exception error) => _uiActions.Enqueue(() => { if (_overlay == frame) status.Text = error.Message; });
         void Persist(Action action) => _ = Task.Run(() => { try { action(); } catch (Exception error) { Report(error); } });
-        CompanionRowButton Row(string id, string text, Pos x, Pos y, Action clicked)
+        CompactRowButton Row(string id, string text, Pos x, Pos y, Action clicked)
         {
-            var button = new CompanionRowButton { Id = id, Text = text, X = x, Y = y, Height = 1, NoDecorations = true, NoPadding = true, ShadowStyle = ShadowStyles.None };
+            var button = new CompactRowButton { Id = id, Text = text, X = x, Y = y, Height = 1, NoDecorations = true, NoPadding = true, ShadowStyle = ShadowStyles.None };
             button.Accepted += (_, args) => { args.Handled = true; clicked(); };
             if (id == "companion-settings-close") frame.Add(button); else panel.Add(button);
             return button;
@@ -73,7 +73,7 @@ public sealed partial class TuiApp
                 catch (Exception error) { Report(error); }
             });
         }
-        CompanionRowButton? local = null, notices = null, animate = null, visible = null, restrict = null, reduced = null, visual = null, categories = null, modelSave = null;
+        CompactRowButton? local = null, notices = null, animate = null, visible = null, restrict = null, reduced = null, visual = null, categories = null, modelSave = null;
         void FilterModels()
         {
             options = all.Where(m => !localOnly || m.Local).ToArray(); models.SetSource(new ObservableCollection<string>(options.Select(m => (_modelDisplayNames.Read(m.Id) ?? m.Id) + " · " + m.Provider)));

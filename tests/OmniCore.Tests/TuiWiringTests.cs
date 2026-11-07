@@ -976,7 +976,8 @@ public sealed partial class TuiWiringTests
                 Assert.Equal(columns, cells.GetLength(1));
                 Assert.DoesNotContain("╭", text);
                 // Dialogs stay frameless; table content deliberately has grid borders.
-                if (scene != "table") Assert.DoesNotContain("┌", text);
+                if (scene == "settings-local-editor") Assert.Contains("┌", text); // Editable argument box.
+                else if (scene != "table") Assert.DoesNotContain("┌", text);
                 if (scene == "sidebar-settings")
                 {
                     Assert.Contains("Alcance: Área de trabajo", text); Assert.Contains("CONTEXTO", text); Assert.DoesNotContain("core.context", text);
@@ -995,8 +996,20 @@ public sealed partial class TuiWiringTests
                         "settings-local" => "Añadir motor local", "settings-local-editor" => "Guardar",
                         "account" => "código de dispositivo", _ => "Cancelar",
                     }, text);
-                    if (scene == "settings-local") Assert.Contains("Editar", text);
-                    if (scene == "settings-local-editor") Assert.Contains("Cancelar", text);
+                    if (scene == "settings-local")
+                    {
+                        var lines = text.Split('\n');
+                        var actions = new[] { "add", "edit", "runtime", "discover", "delete" }
+                            .Select(id => Descendants(fx.App.Overlay!).Single(view => view.Id == "local-engine-" + id))
+                            .Select(view => Array.FindIndex(lines, line => line.Contains(view.Text.ToString()!, StringComparison.Ordinal)))
+                            .ToArray();
+                        Assert.True(actions[0] >= 0 && actions.SequenceEqual(Enumerable.Range(actions[0], 5)), text);
+                    }
+                    if (scene == "settings-local-editor")
+                    {
+                        Assert.Contains("Administrado por OmniCore", text);
+                        Assert.Contains("Cancelar", text);
+                    }
                     Assert.Equal(Terminal.Gui.Drawing.LineStyle.None, fx.App.Overlay!.BorderStyle);
                     Assert.False(fx.App.Composer!.HasFocus);
                 }

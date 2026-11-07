@@ -51,7 +51,7 @@ public sealed partial class TuiApp
     private string _companionPendingKey = "";
     private int _companionPendingCount;
     private DateTimeOffset _companionAttentionUntil;
-    private CompanionRowButton? _companionBadge;
+    private CompactRowButton? _companionBadge;
     private long _companionDialogueRevision = -1;
 
     private void PollCompanionHub()
@@ -167,9 +167,9 @@ public sealed partial class TuiApp
         if (_sidebar is null || _pet?.Discovered != true) return;
         if (_companionOpen is null)
         {
-            _companionOpen = new CompanionRowButton { Id = "companion-hub-open", X = 2, Y = Pos.AnchorEnd(14), Height = 1, Text = "Conversar", NoDecorations = true, ShadowStyle = ShadowStyles.None };
+            _companionOpen = new CompactRowButton { Id = "companion-hub-open", X = 2, Y = Pos.AnchorEnd(14), Height = 1, Text = "Conversar", NoDecorations = true, ShadowStyle = ShadowStyles.None };
             _companionOpen.Accepted += (_, args) => { args.Handled = true; OpenCompanionHub("chat"); };
-            _companionRestrict = new CompanionRowButton { Id = "companion-restrict", X = Pos.Right(_companionOpen) + 1,
+            _companionRestrict = new CompactRowButton { Id = "companion-restrict", X = Pos.Right(_companionOpen) + 1,
                 Y = Pos.AnchorEnd(14), Height = 1, Text = "Restringir", NoDecorations = true, ShadowStyle = ShadowStyles.None };
             _companionRestrict.Accepted += (_, args) => { args.Handled = true; ToggleCompanionRestriction(); };
             _sidebar.Add(_companionOpen, _companionRestrict); ApplyTheme(_companionOpen); ApplyTheme(_companionRestrict);
@@ -216,12 +216,12 @@ public sealed partial class TuiApp
         _companionInput = new() { Id = "companion-chat-input", X = 0, Y = Pos.AnchorEnd(6), Width = Dim.Fill(), Height = 3, WordWrap = true,
             BorderStyle = LineStyle.Single, Title = "Mensaje" };
         _companionInput.KeyDown += (_, args) => { if (args.KeyCode == KeyCode.Enter && _companionTab == "chat") { args.Handled = true; SendCompanionChat(); } };
-        var action = new CompanionRowButton { Id = "companion-hub-action", X = 0, Y = Pos.AnchorEnd(3), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Enviar / Ver" };
+        var action = new CompactRowButton { Id = "companion-hub-action", X = 0, Y = Pos.AnchorEnd(3), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Enviar / Ver" };
         _companionAction = action;
         action.Accepted += (_, args) => { args.Handled = true; CompanionHubAction(); };
-        var model = new CompanionRowButton { Id = "companion-model-open", X = Pos.Right(action) + 1, Y = Pos.AnchorEnd(3), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Preferencias" };
+        var model = new CompactRowButton { Id = "companion-model-open", X = Pos.Right(action) + 1, Y = Pos.AnchorEnd(3), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Preferencias" };
         model.Accepted += (_, args) => { args.Handled = true; ShowCompanionSettings(); };
-        var close = new CompanionRowButton { Id = "companion-hub-close", X = 0, Y = Pos.AnchorEnd(1), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Cerrar" };
+        var close = new CompactRowButton { Id = "companion-hub-close", X = 0, Y = Pos.AnchorEnd(1), Height = 1, NoDecorations = true, ShadowStyle = ShadowStyles.None, Text = "Cerrar" };
         close.Accepted += (_, args) => { args.Handled = true; CloseCompanionHub(); };
         frame.Add(_companionInfo, _companionBody, _companionList, _companionInput, action, model, close);
         if (wide) _sidebar!.Add(frame); else { _overlay = frame; _window.Add(frame); }
@@ -388,7 +388,7 @@ public sealed partial class TuiApp
         var location = new TextView { X = 1, Y = 0, Width = Dim.Fill(1), Height = 4, ReadOnly = true, WordWrap = true,
             Text = target.Workspace + "\nSesión: " + target.Session + "\nInstancia: " + target.Id + "\n" + target.State };
         var input = new TextView { Id = "companion-target-input", X = 1, Y = 5, Width = Dim.Fill(1), Height = 3, WordWrap = true };
-        var send = new CompanionRowButton { Id = "companion-target-send", X = 1, Y = 8, Text = "Enviar", Height = 2 };
+        var send = new CompactRowButton { Id = "companion-target-send", X = 1, Y = 8, Text = "Enviar", Height = 2 };
         send.Accepted += (_, args) => { args.Handled = true; QueueCompanionDelivery(target, "instruction", input.Text?.ToString() ?? ""); };
         frame.Add(location, input, send);
         var y = 10;
@@ -398,12 +398,12 @@ public sealed partial class TuiApp
             for (var n = 0; n < decision.OptionIds.Length && n < 4; n++)
             {
                 var option = decision.OptionIds[n];
-                var button = new CompanionRowButton { Id = "companion-target-option-" + n, X = 1, Y = y, Height = 2, Text = decision.Labels.ElementAtOrDefault(n) ?? option };
+                var button = new CompactRowButton { Id = "companion-target-option-" + n, X = 1, Y = y, Height = 2, Text = decision.Labels.ElementAtOrDefault(n) ?? option };
                 button.Accepted += (_, args) => { args.Handled = true; QueueCompanionDelivery(target, "answer", "", decision.Id, option); };
                 frame.Add(button); y += 2;
             }
         }
-        var close = new CompanionRowButton { X = 1, Y = Pos.AnchorEnd(2), Text = "Cerrar", Height = 2 };
+        var close = new CompactRowButton { X = 1, Y = Pos.AnchorEnd(2), Text = "Cerrar", Height = 2 };
         close.Accepted += (_, args) => { args.Handled = true; CloseOverlay(); }; frame.Add(close);
         _overlay = frame; ApplyTheme(frame); _window!.Add(frame); input.SetFocus();
     }

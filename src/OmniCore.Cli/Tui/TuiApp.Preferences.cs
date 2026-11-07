@@ -511,7 +511,7 @@ public sealed partial class TuiApp
         if (selected.Id == "local_engines")
         {
             var engineList = FindPreferenceView(frame, "local-engine-list");
-            if (engineList?.CanFocus == true) focus = engineList;
+            focus = engineList?.CanFocus == true ? engineList : FindPreferenceView(frame, "local-engine-add");
         }
         return focus ?? back;
     }
@@ -750,12 +750,10 @@ public sealed partial class TuiApp
         }
         var rows = snapshot.Engines.ToArray();
         contentPanel.Add(MenuIndent.Heading(Pref("local_engines_heading") + " (" + rows.Length + ")", y++));
-        y++; contentPanel.Add(MenuIndent.Help(Pref("local_modes_help"), y, 2, "local-engine-modes"));
-        y += 3;
         _localEngineIdWidth = Math.Clamp(rows.Length == 0 ? 8 : rows.Max(row => row.ProviderId.Length), 8, 24);
         contentPanel.Add(new Label { Id = "local-engine-columns", X = MenuIndent.Level1, Y = y++, Width = Dim.Fill(4), Height = 1,
             Text = Pref("local_columns") });
-        var listHeight = Math.Max(2, Math.Min(10, contentPanel.Frame.Height - y - 10));
+        var listHeight = Math.Clamp(rows.Length, 1, (_window?.Viewport.Height ?? 25) < 30 ? 2 : 7);
         var list = new ListView { Id = "local-engine-list", X = MenuIndent.Level1, Y = y,
             Width = Dim.Fill(4), Height = listHeight,
             CanFocus = rows.Length > 0, ShowMarks = false };
@@ -764,22 +762,22 @@ public sealed partial class TuiApp
             : Array.FindIndex(rows, row => row.ProviderId == _localEngineSelectedProviderId);
         if (rows.Length > 0) list.SelectedItem = selectedIndex >= 0 ? selectedIndex : 0;
         var listBottom = y + listHeight;
-        var status = new Label { Id = "local-engine-runtime-status", X = MenuIndent.Level1, Y = listBottom + 1,
+        var actionY = listBottom + 1;
+        var status = new Label { Id = "local-engine-runtime-status", X = MenuIndent.Level1, Y = actionY + 6,
             Width = Dim.Fill(4), Height = 2, Text = LocalEngineStatusText(SelectedRow()) };
-        var actionY = listBottom + 4;
-        var add = new Button { Id = "local-engine-add", X = MenuIndent.Level1, Y = actionY,
-            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_add"),
+        var add = new CompactRowButton { Id = "local-engine-add", X = MenuIndent.Level1, Y = actionY,
+            Width = Dim.Fill(4), Height = 1, NoPadding = true, TextAlignment = Alignment.Start, Text = Pref("local_add"),
             Enabled = snapshot.Diagnostics.Count == 0 };
         add.Accepted += (_, _) => ShowLocalEngineEditor(snapshot, null);
-        var edit = new Button { Id = "local-engine-edit", X = MenuIndent.Level1, Y = actionY + 1,
-            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_edit") };
-        var runtime = new Button { Id = "local-engine-runtime", X = MenuIndent.Level1, Y = actionY + 2,
-            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_runtime_check") };
-        var discover = new Button { Id = "local-engine-discover", X = MenuIndent.Level1, Y = actionY + 3,
-            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_discover") };
-        var delete = new Button { Id = "local-engine-delete", X = MenuIndent.Level1, Y = actionY + 4,
-            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_delete") };
-        var notice = new Label { Id = "local-engine-notice", X = MenuIndent.Level1, Y = actionY + 6,
+        var edit = new CompactRowButton { Id = "local-engine-edit", X = MenuIndent.Level1, Y = actionY + 1,
+            Width = Dim.Fill(4), Height = 1, NoPadding = true, TextAlignment = Alignment.Start, Text = Pref("local_edit") };
+        var runtime = new CompactRowButton { Id = "local-engine-runtime", X = MenuIndent.Level1, Y = actionY + 2,
+            Width = Dim.Fill(4), Height = 1, NoPadding = true, TextAlignment = Alignment.Start, Text = Pref("local_runtime_check") };
+        var discover = new CompactRowButton { Id = "local-engine-discover", X = MenuIndent.Level1, Y = actionY + 3,
+            Width = Dim.Fill(4), Height = 1, NoPadding = true, TextAlignment = Alignment.Start, Text = Pref("local_discover") };
+        var delete = new CompactRowButton { Id = "local-engine-delete", X = MenuIndent.Level1, Y = actionY + 4,
+            Width = Dim.Fill(4), Height = 1, NoPadding = true, TextAlignment = Alignment.Start, Text = Pref("local_delete") };
+        var notice = new Label { Id = "local-engine-notice", X = MenuIndent.Level1, Y = actionY + 9,
             Width = Dim.Fill(4), Height = 3, Text = _localEngineNotice ?? LocalEngineDiagnostics(snapshot) };
         void SyncSelection()
         {
@@ -833,7 +831,8 @@ public sealed partial class TuiApp
             contentPanel.Add(new Label { Id = "local-engine-empty", X = MenuIndent.Level1, Y = y,
                 Width = Dim.Fill(4), Height = 1, Text = Pref("local_empty") });
         contentPanel.Add(list, status, notice, add, edit, runtime, discover, delete);
-        ConfigurePreferenceScroll(contentPanel, actionY + 10);
+        contentPanel.Add(MenuIndent.Help(Pref("local_modes_help"), actionY + 13, 3, "local-engine-modes"));
+        ConfigurePreferenceScroll(contentPanel, actionY + 16);
         SyncSelection();
     }
 
@@ -999,8 +998,8 @@ public sealed partial class TuiApp
         var providerId = Field("local-engine-id", Pref("local_id"), existing?.ProviderId);
         providerId.ReadOnly = existing is not null;
         providerId.CanFocus = existing is null;
-        var modeButton = new Button { Id = "local-engine-mode", X = fieldX, Y = y, Width = Dim.Fill(2), Height = 1,
-            TextAlignment = Alignment.Start };
+        var modeButton = new CompactRowButton { Id = "local-engine-mode", X = fieldX, Y = y, Width = Dim.Fill(2), Height = 1,
+            NoPadding = true, TextAlignment = Alignment.Start };
         panel.Add(Caption(Pref("local_mode"), y++), modeButton);
         var endpoint = Field("local-engine-endpoint", Pref("local_endpoint"), mode == "managed" ? managedEndpoint : attachEndpoint);
         var modeHint = new Label { Id = "local-engine-editor-mode-guide", X = 0, Y = y, Width = Dim.Fill(2), Height = 2 };

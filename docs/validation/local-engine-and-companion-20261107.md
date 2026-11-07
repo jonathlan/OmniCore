@@ -9,6 +9,10 @@ muestra el ejecutable y sus opciones de inicio. Cambiar de modo conserva los
 borradores mientras el editor permanece abierto. El guardado conserva el
 descubrimiento de modelos y no arranca un proceso por sí mismo.
 
+Las acciones preceden al estado y la ayuda. Los botones de una fila no
+reservan espacio para sombra, por lo que su texto y superficie de clic
+permanecen visibles. Con la lista vacía, el foco empieza en Añadir motor local.
+
 F3 permite escribir un nombre corto personal. Se guarda como preferencia visual
 independiente por identificador de modelo. No altera el catálogo, alias de
 enrutamiento, proveedor, ruta ni peticiones. Borrar el nombre restaura la vista
