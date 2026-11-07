@@ -116,16 +116,23 @@ public sealed partial class TuiWiringTests
                 var owner = fx.App.Overlay;
                 var key = Descendants(owner!).OfType<TextField>().Single(view => view.Id == "provider-api-key");
                 Assert.True(key.Secret);
+                var status = EnterControl(fx, "provider-key-status");
+                var save = EnterControl(fx, "provider-key-save");
+                var beforeValidation = status.Text.ToString();
                 fx.Invoke(() => key.SetFocus());
-                fx.InjectKey(new Key(KeyCode.Enter));
-                fx.Wait(() => Descendants(fx.App.Overlay!).Single(view => view.Id == "provider-key-status")
-                    .Text.ToString() == "Escribe una clave API.", "empty key validation stays in form");
+                EnterOnce(fx, () => save.HasFocus, "Enter del campo lleva a Guardar sin intentar validar");
+                Assert.Equal(beforeValidation, status.Text.ToString());
+                EnterOnce(fx, () => status.Text.ToString() == "Escribe una clave API.", "empty key validation stays in form");
                 Assert.Same(owner, fx.App.Overlay);
+                Assert.True(key.HasFocus);
                 Assert.Equal(0, providers.OperationCalls);
                 providers.FailConnect = true;
                 fx.Invoke(() => key.Text = "invalid-fixture-key");
-                fx.InjectKey(new Key(KeyCode.Enter));
-                fx.Wait(() => providers.OperationCalls == 1 && OverlayText(fx.App.Overlay!).Contains("No se pudo", StringComparison.Ordinal), "backend error stays in form");
+                EnterOnce(fx, () => save.HasFocus, "Enter mantiene la clave en el formulario hasta confirmar Guardar");
+                Assert.Equal(0, providers.OperationCalls);
+                Assert.Equal("invalid-fixture-key", key.Text.ToString());
+                EnterOnce(fx, () => providers.OperationCalls == 1 && OverlayText(fx.App.Overlay!).Contains("No se pudo", StringComparison.Ordinal),
+                    "backend error stays in form");
                 Assert.Same(owner, fx.App.Overlay);
                 Assert.Equal("", key.Text.ToString());
                 Assert.Equal("openrouter-custom", providers.LastProviderId);

@@ -53,8 +53,18 @@ La evidencia de ejecución y publicación de la revisión exacta se conserva apa
 una compilación local no acredita que la instalación del otro equipo esté actualizada.
 
 La solución Release compila con **0 errores y 0 advertencias**. La batería focal
-final, ejecutada mediante `dotnet test --solution OmniCore.slnx`, pasa **143/143**,
+final, ejecutada mediante `dotnet test --solution OmniCore.slnx`, pasa **145/145**,
 sin fallos ni omisiones, incluyendo arquitectura, es/en/fr/it y los recorridos
 reales de cuentas, extensiones y comprobación de actualizaciones con fixtures.
 La prueba de cuentas detectó y permitió retirar un manejador de Enter duplicado
 en el campo de clave; el campo ya no intenta guardar mientras se enfoca Guardar.
+
+La [primera CI](https://github.com/juancgomezm-s/OmniCore/actions/runs/42341185896)
+encontró dos expectativas antiguas en OpenRouter (80×25 y 120×40), reproducidas
+en Windows y Linux: esperaban validar la clave desde el campo con una sola tecla.
+Ambos recorridos comprueban ahora que el primer Enter enfoca Guardar y preserva
+la clave y el estado. El siguiente Enter mantiene la validación local de clave
+vacía y, cuando hay una clave, realiza un único intento explícito con el proveedor
+de pruebas. Se conservan los avisos dentro del formulario y se limpia la clave
+al confirmar. Los dos tamaños pasan en la batería local final. La primera
+entrega quedó como borrador; la corrección de pruebas requiere una nueva CI.
