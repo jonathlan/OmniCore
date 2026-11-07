@@ -160,18 +160,20 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         var usageReported = false;
         var stop = StopReason.EndTurn;
         var sawChunk = false;
+        var sawTerminal = false;
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream, Encoding.UTF8, true, 1024, leaveOpen: true);
-        string? line;
         var data = new StringBuilder();
-        while ((line = await ReadSseLineAsync(reader, cancellationToken).ConfigureAwait(false)) is not null)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (line.Length == 0)
+            var line = await ReadSseLineAsync(reader, cancellationToken).ConfigureAwait(false);
+            if (line is null && data.Length == 0) break;
+            if (string.IsNullOrEmpty(line))
             {
                 if (data.Length == 0) continue;
                 var payload = data.ToString().TrimEnd('\n'); data.Clear();
-                if (payload == "[DONE]") break;
+                if (payload == "[DONE]") { sawTerminal = true; break; }
                 var chunk = DeserializeChunk(payload);
                 if (chunk is null) continue;
                 sawChunk = true;
@@ -210,7 +212,8 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                         }
                         foreach (var (key, value) in choice.Delta.Extra ?? []) opaqueFields[key] = value.Clone();
                     }
-                    if (choice.FinishReason is not null) stop = MapFinishReason(choice.FinishReason);
+                    if (!string.IsNullOrEmpty(choice.FinishReason))
+                    { sawTerminal = true; stop = MapFinishReason(choice.FinishReason); }
                 }
                 continue;
             }
@@ -221,6 +224,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             }
         }
         if (!sawChunk) throw new ModelProviderException("ProviderUnavailable", "El servidor cerró el stream antes de enviar eventos.");
+        if (!sawTerminal) throw new ModelProviderException("ProviderUnavailable", "El servidor interrumpió la respuesta antes de indicar que había terminado.");
         var content = new List<ContentBlock>();
         if (reasoning.Length > 0)
         {

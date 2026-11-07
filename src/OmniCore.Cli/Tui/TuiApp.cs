@@ -169,6 +169,7 @@ public sealed partial class TuiApp
         _reasoningDisplayStore = new(Path.ChangeExtension(animationSettingsPath ?? TuiPresentationPaths.AnimationSettingsPath(), ".reasoning"));
         ShowReportedReasoning = _reasoningDisplayStore.Load();
         _densityStore = new(Path.ChangeExtension(animationSettingsPath ?? TuiPresentationPaths.AnimationSettingsPath(), ".sidebar-density"));
+        _modelDisplayNames = new(Path.ChangeExtension(animationSettingsPath ?? TuiPresentationPaths.AnimationSettingsPath(), ".model-names"));
         _compactDensity = _densityStore.Read();
         if (Environment.GetEnvironmentVariable("OMNICORE_TUI_SIDEBAR_DENSITY") == "compact")
         { _densityBeforePreview = _compactDensity; _compactDensity = true; }
@@ -1854,7 +1855,7 @@ public sealed partial class TuiApp
         var title = _sidebarProjection.Snapshot?.Title is { Length: > 0 } sessionTitle ? sessionTitle
             : _state.Conversation.Blocks.FirstOrDefault(block => block.Role == ConversationRole.User)?.Text.Split('\n')[0]
             ?? _localization.Resolve("shell.new_session");
-        return SessionHeading(workspace, title, _observedModel ?? _selectedModel ?? _localization.Resolve("shell.automatic_no_turn"), width, _locale);
+        return SessionHeading(workspace, title, ModelHeadingLabel(), width, _locale);
     }
 
     internal static string SessionHeading(string workspace, string title, string model, int width, string locale = "es")
@@ -1933,7 +1934,7 @@ public sealed partial class TuiApp
         if (_sidebar?.SubViews.FirstOrDefault(view => view.Id == "omni-heading") is Label heading)
             heading.Text = _sidebar.Title = _localization.Resolve("shell.workspace_heading");
         var widgets = SessionSidebarPresentation.Build(_sidebarProjection.Snapshot, _observability.Snapshot,
-            _observedModel ?? _selectedModel ?? _localization.Resolve("shell.automatic_no_turn"),
+            ModelHeadingLabel(),
             _state.StatusLine.Mode, _locale, true).ToList();
         var agentWidget = AgentPresentation.Build(_agents.Snapshot, _locale, true);
         _sidebarWidgets = widgets.Concat(new[] { agentWidget, _files.Widget(_locale) }).ToArray();
@@ -2253,7 +2254,7 @@ public sealed partial class TuiApp
         else if (view.Id == "preferences-panel") surface = PreferencesSurface;
         else if (view.Id == "preferences-categories") surface = MenuSurface;
         else if (view.Id is "preferences-search" or "commands-filter") surface = "#102331";
-        else if (view is TextField) surface = "#293E51";
+        else if (view is TextField || view.Id is "local-engine-arguments" or "companion-settings-memory-text") surface = "#293E51";
         else if (view.Id == "preferences-accent") surface = noColor ? "#061822" : "#67D4D0";
         else if (view.Id == "omni-menu-action") surface = "#293E51";
         else if (view.Id == "omni-model-palette" || view.Id == "omni-palette-search" || view.Id == "omni-palette-action") surface = "#061822";
@@ -2552,7 +2553,7 @@ public sealed partial class TuiApp
         var configured = _policies.Models.ToArray();
         var available = AllPickerModels(configured, routerModels)
             .Where(m => _policies.IsVisibleInPicker(m.ProviderId, m.Id)).ToArray();
-        string ModelName(ModelRegistryModelDescriptor model) => CatalogDisplay(_policies.DisplayName(model.Id)
+        string ModelName(ModelRegistryModelDescriptor model) => CatalogDisplay(_modelDisplayNames.Read(model.Id) ?? _policies.DisplayName(model.Id)
             ?? routerModels.FirstOrDefault(row => row.ProviderId == model.ProviderId && row.Id == model.Id)?.Name
             ?? model.Id, 160);
         string ProviderLabel(ModelRegistryModelDescriptor model) =>
@@ -2565,7 +2566,7 @@ public sealed partial class TuiApp
             var catalog = metadata.GetValueOrDefault((model.ProviderId, model.Id));
             return new ModelPickerList.Entry(model, ProviderLabel(model),
                 ModelPickerList.Manufacturer(model.Id, catalog?.Name, "—"),
-                CatalogDisplay(_policies.DisplayName(model.Id) ?? model.Id, 160),
+                CatalogDisplay(_modelDisplayNames.Read(model.Id) ?? _policies.DisplayName(model.Id) ?? model.Id, 160),
                 catalog?.ContextLength ?? (model.ContextWindow > 0 ? model.ContextWindow : null),
                 catalog?.PromptPricePerToken, catalog?.CompletionPricePerToken);
         }));
@@ -2596,6 +2597,7 @@ public sealed partial class TuiApp
             Text = _localization.Resolve("openrouter.catalog.cost") + ": " + _localization.Resolve("openrouter.catalog.input") + "/"
                 + _localization.Resolve("openrouter.catalog.output") };
         var position = new Label { Id = "omni-heading", X = 2, Y = Pos.AnchorEnd(3), Width = Dim.Fill(4) };
+        Button? shortName = null;
         ModelRegistryModelDescriptor? Selection() => list.SelectedItem is int at && at >= 0 && at < rows.Length ? rows[at].Model : null;
         int ListWidth() => Math.Max(24, list.Viewport.Width > 0 ? list.Viewport.Width - 1
             : (int)(_window.Frame.Width * .94) - 7);
@@ -2611,6 +2613,7 @@ public sealed partial class TuiApp
             position.Text = models.Length == 0 ? _localization.Resolve("shell.no_matches_check_search_or_f4")
                 : $"{ordinal + 1} / {models.Length}  ·  " + _localization.Resolve("shell.navigate_enter_select");
             details.Text = model is null ? "" : CatalogDisplay(model.ProviderId + " · " + model.Id, 240);
+            if (shortName is not null) shortName.Enabled = model is not null;
         }
         void RebuildRows(ModelRegistryModelDescriptor? keep = null)
         {
@@ -2741,6 +2744,15 @@ public sealed partial class TuiApp
         close.Accepted += (_, _) => CloseOverlay();
         var manage = new Button { Id = "omni-palette-action", X = 2, Y = Pos.AnchorEnd(1), Text = _localization.Resolve("shell.manage_models_ctrl_m") };
         manage.Accepted += (_, _) => { CloseOverlay(); ShowModelToggles(); };
+        shortName = new Button { Id = "omni-picker-short-name", X = Pos.Right(manage) + 2, Y = Pos.AnchorEnd(1),
+            Text = Pref("model_short_name_action"), Enabled = Selection() is not null };
+        shortName.Accepted += (_, e) =>
+        {
+            e.Handled = true;
+            if (HighlightedModel() is not { } key) return;
+            var filter = search.Text.ToString();
+            EditModelDisplayName(key.ModelId, () => ShowModelPicker(page, refreshCatalog: false, query: filter, highlighted: key));
+        };
         var refresh = new Button { Id = "omni-palette-refresh", X = 2, Y = Pos.AnchorEnd(2),
             Text = _localization.Resolve(routerProviders.Length > 0 ? "openrouter.picker.refreshChatGpt" : "shell.refresh_models"),
             Enabled = _policies.SupportsDiscovery, Visible = _policies.SupportsDiscovery };
@@ -2758,7 +2770,7 @@ public sealed partial class TuiApp
         }
         ApplyTheme(_window, dimmed: true);
         if (_conversation is not null) _conversation.Dimmed = true;
-        frame.Add(searchLabel, search, searchHint, columns, list, details, units, position, close, manage, refresh); ApplyTheme(frame); _overlay = frame; _window.Add(frame);
+        frame.Add(searchLabel, search, searchHint, columns, list, details, units, position, close, manage, shortName, refresh); ApplyTheme(frame); _overlay = frame; _window.Add(frame);
         if (models.Length > 0) list.SetFocus(); else search.SetFocus();
         var refreshSubscription = refreshCatalog && _policies.SupportsDiscovery;
         if (refreshSubscription)

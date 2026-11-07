@@ -28,6 +28,36 @@ public sealed class CompanionNaturalConversationTests : IDisposable
     public void Context_uses_local_32k_or_the_remote_model_capacity(bool local, long declared, long expected)
     { Assert.Equal(expected, CompanionContext.Capacity(local, declared)); }
 
+    [Theory]
+    [InlineData(StopReason.EndTurn, "cli.runtime.turn.no_final_answer")]
+    [InlineData(StopReason.MaxOutputTokens, "companion.chat.output_exhausted")]
+    public async Task Companion_reasoning_without_visible_text_reports_the_cause(StopReason stop, string diagnostic)
+    {
+        var reply = CompanionToolsTests.Response([new ReasoningBlock("not a chat answer", ReasoningVisibility.Full, null)]) with { StopReason = stop };
+        var provider = new CompanionToolsTests.ScriptedProvider([reply]);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => CompanionConversation.Reply(provider,
+            new(new("local"), 8192, ToolMode.Direct, null), "Omni", "", [new("user", "Hola")], TestContext.Current.CancellationToken));
+        Assert.Equal(diagnostic, failure.Message);
+        Assert.Single(provider.Requests);
+    }
+
+    [Fact]
+    public async Task Companion_local_harness_requests_one_final_answer_without_replaying_reasoning_or_tools()
+    {
+        var provider = new CompanionToolsTests.ScriptedProvider([
+            CompanionToolsTests.Response([new ReasoningBlock("private scratchpad", ReasoningVisibility.Full, null)]),
+            CompanionToolsTests.Response([new TextBlock("Sí, aquí estoy.")])]);
+        var text = await CompanionConversation.Reply(provider, new(new("local"), 8192, ToolMode.Direct, null),
+            "Omni", "", [new("user", "¿Estás ahí?")], TestContext.Current.CancellationToken,
+            tools: new(Hub(), "¿Estás ahí?"), allowFinalAnswerPass: true);
+        Assert.Equal("Sí, aquí estoy.", text);
+        Assert.Equal(2, provider.Requests.Count);
+        Assert.Empty(provider.Requests[1].Tools);
+        Assert.Equal("none", provider.Requests[1].ToolChoice.Mode);
+        Assert.Null(provider.Requests[1].Continuation);
+        Assert.DoesNotContain(provider.Requests[1].Messages.SelectMany(m => m.Content), block => block is ReasoningBlock);
+    }
+
     [Fact]
     public async Task Context_keeps_more_than_twelve_messages_and_does_not_cut_long_user_messages_or_answers()
     {

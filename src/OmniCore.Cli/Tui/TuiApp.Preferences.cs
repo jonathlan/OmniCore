@@ -768,17 +768,17 @@ public sealed partial class TuiApp
             Width = Dim.Fill(4), Height = 2, Text = LocalEngineStatusText(SelectedRow()) };
         var actionY = listBottom + 4;
         var add = new Button { Id = "local-engine-add", X = MenuIndent.Level1, Y = actionY,
-            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_add"),
+            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_add"),
             Enabled = snapshot.Diagnostics.Count == 0 };
         add.Accepted += (_, _) => ShowLocalEngineEditor(snapshot, null);
-        var edit = new Button { Id = "local-engine-edit", X = Pos.Right(add) + 1, Y = actionY,
-            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_edit") };
+        var edit = new Button { Id = "local-engine-edit", X = MenuIndent.Level1, Y = actionY + 1,
+            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_edit") };
         var runtime = new Button { Id = "local-engine-runtime", X = MenuIndent.Level1, Y = actionY + 2,
-            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_runtime_check") };
-        var delete = new Button { Id = "local-engine-delete", X = Pos.Right(runtime) + 1, Y = actionY + 2,
-            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_delete") };
-        var discover = new Button { Id = "local-engine-discover", X = MenuIndent.Level1, Y = actionY + 4,
-            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_discover") };
+            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_runtime_check") };
+        var discover = new Button { Id = "local-engine-discover", X = MenuIndent.Level1, Y = actionY + 3,
+            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_discover") };
+        var delete = new Button { Id = "local-engine-delete", X = MenuIndent.Level1, Y = actionY + 4,
+            Width = Dim.Fill(4), Height = 1, TextAlignment = Alignment.Start, Text = Pref("local_delete") };
         var notice = new Label { Id = "local-engine-notice", X = MenuIndent.Level1, Y = actionY + 6,
             Width = Dim.Fill(4), Height = 3, Text = _localEngineNotice ?? LocalEngineDiagnostics(snapshot) };
         void SyncSelection()
@@ -832,7 +832,7 @@ public sealed partial class TuiApp
         if (rows.Length == 0)
             contentPanel.Add(new Label { Id = "local-engine-empty", X = MenuIndent.Level1, Y = y,
                 Width = Dim.Fill(4), Height = 1, Text = Pref("local_empty") });
-        contentPanel.Add(list, status, notice, add, edit, runtime, delete, discover);
+        contentPanel.Add(list, status, notice, add, edit, runtime, discover, delete);
         ConfigurePreferenceScroll(contentPanel, actionY + 10);
         SyncSelection();
     }
@@ -979,56 +979,93 @@ public sealed partial class TuiApp
         if (_overlay is null || _window is null) return;
         CloseOverlay();
         var frame = PreferenceFrame(Pref("local_title") + " › " + (existing?.ProviderId ?? Pref("local_add")), _window.Frame.Height - 3);
-        frame.Width = Dim.Percent(82);
-        frame.Height = Dim.Fill(2);
-        var y = 2;
-        void Field(string id, string label, string? value, out TextField field)
-        {
-            frame.Add(new Label { X = 2, Y = y, Width = 22, Height = 1, Text = label });
-            field = new TextField { Id = id, X = 25, Y = y++, Width = Dim.Fill(4), Height = 1, Text = value ?? "" };
-            frame.Add(field);
-        }
-        Field("local-engine-id", Pref("local_id"), existing?.ProviderId, out var providerId);
-        providerId.ReadOnly = existing is not null;
         var mode = existing?.Mode ?? "attach";
-        var attachDefaultEndpoint = existing is null ? "http://127.0.0.1:8080" : null;
-        var modeButton = new Button { Id = "local-engine-mode", X = 2, Y = y++, Width = Dim.Fill(4),
-            TextAlignment = Alignment.Start, Text = Pref("local_mode") + ": " + LocalEngineMode(mode) };
-        frame.Add(modeButton);
-        Field("local-engine-endpoint", Pref("local_endpoint"), existing?.BaseUrl
-            ?? (mode == "managed" ? "auto" : "http://127.0.0.1:8080"), out var endpoint);
-        modeButton.Accepted += (_, _) =>
+        var attachEndpoint = mode == "attach" ? existing?.BaseUrl ?? "http://127.0.0.1:8080" : "http://127.0.0.1:8080";
+        var managedEndpoint = mode == "managed" ? existing?.BaseUrl ?? "auto" : "auto";
+        frame.Width = Dim.Percent(90);
+        frame.Height = Dim.Func(_ => Math.Min(mode == "managed" ? 27 : 14, Math.Max(1, _window.Viewport.Height - 2)));
+        var panel = new View { Id = "local-engine-editor-fields", X = 2, Y = 2, Width = Dim.Fill(2), Height = Dim.Fill(7),
+            ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar };
+        frame.Add(panel);
+        const int fieldX = 25;
+        var y = 0;
+        Label Caption(string label, int row) => new() { X = 0, Y = row, Width = fieldX - 1, Height = 1, Text = label };
+        TextField Field(string id, string label, string? value)
         {
-            mode = mode == "attach" ? "managed" : "attach";
-            if (mode == "managed" && (endpoint.Text.ToString() == attachDefaultEndpoint || endpoint.Text.ToString().Length == 0))
-                endpoint.Text = "auto";
-            else if (mode == "attach" && endpoint.Text.ToString() == "auto")
-                endpoint.Text = attachDefaultEndpoint ?? "http://127.0.0.1:8080";
-            modeButton.Text = Pref("local_mode") + ": " + LocalEngineMode(mode);
-        };
-        Field("local-engine-executable", Pref("local_executable"), existing?.Executable, out var executable);
-        var argsLabel = new Label { X = 2, Y = y, Width = 22, Height = 1, Text = Pref("local_arguments") };
-        var args = new TextView { Id = "local-engine-arguments", X = 25, Y = y + 1, Width = Dim.Fill(4), Height = 2,
-            WordWrap = false, Text = EncodeLocalArguments(existing?.Arguments ?? []) };
-        frame.Add(argsLabel, args, new Label { Id = "local-engine-arguments-help", X = 2, Y = y + 3,
-            Width = Dim.Fill(4), Height = 2, Text = Pref("local_arguments_help") });
+            var field = new TextField { Id = id, X = fieldX, Y = y, Width = Dim.Fill(2), Height = 1, Text = value ?? "" };
+            panel.Add(Caption(label, y++), field);
+            return field;
+        }
+        var providerId = Field("local-engine-id", Pref("local_id"), existing?.ProviderId);
+        providerId.ReadOnly = existing is not null;
+        providerId.CanFocus = existing is null;
+        var modeButton = new Button { Id = "local-engine-mode", X = fieldX, Y = y, Width = Dim.Fill(2), Height = 1,
+            TextAlignment = Alignment.Start };
+        panel.Add(Caption(Pref("local_mode"), y++), modeButton);
+        var endpoint = Field("local-engine-endpoint", Pref("local_endpoint"), mode == "managed" ? managedEndpoint : attachEndpoint);
+        var modeHint = new Label { Id = "local-engine-editor-mode-guide", X = 0, Y = y, Width = Dim.Fill(2), Height = 2 };
+        panel.Add(modeHint);
+        y += 2;
+        var attachHeight = y;
+        var managedStart = panel.SubViews.Count;
+        var executable = Field("local-engine-executable", Pref("local_executable"), existing?.Executable);
+        panel.Add(Caption(Pref("local_arguments"), y++));
+        var args = new TextView { Id = "local-engine-arguments", X = 0, Y = y, Width = Dim.Fill(2), Height = 5,
+            BorderStyle = Terminal.Gui.Drawing.LineStyle.Single, WordWrap = false, ScrollBars = true,
+            Text = EncodeLocalArguments(existing?.Arguments ?? []) };
+        panel.Add(args);
         y += 5;
-        Field("local-engine-directory", Pref("local_directory"), existing?.WorkingDirectory, out var directory);
-        Field("local-engine-timeout", Pref("local_timeout"), (existing?.ReadinessTimeoutSeconds ?? 120).ToString(System.Globalization.CultureInfo.InvariantCulture), out var timeout);
+        panel.Add(new Label { X = 0, Y = y, Width = Dim.Fill(2), Height = 3,
+            Text = Pref("local_arguments_newline") + "\n" + Pref("local_arguments_help") });
+        y += 3;
+        var directory = Field("local-engine-directory", Pref("local_directory"), existing?.WorkingDirectory);
+        var timeout = Field("local-engine-timeout", Pref("local_timeout"),
+            (existing?.ReadinessTimeoutSeconds ?? 120).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var managedFields = panel.SubViews.Skip(managedStart).ToArray();
+        var sizeContent = ConfigurePreferenceScroll(panel, () => mode == "managed" ? y : attachHeight);
+        void ShowMode()
+        {
+            modeButton.Text = LocalEngineMode(mode) + "  ‹ ›";
+            modeHint.Text = Pref(mode == "managed" ? "local_editor_managed_guide" : "local_editor_attach_guide");
+            foreach (var field in managedFields) field.Visible = mode == "managed";
+            sizeContent();
+            frame.SetNeedsLayout();
+        }
+        void ToggleMode()
+        {
+            if (mode == "attach") { attachEndpoint = endpoint.Text.ToString(); mode = "managed"; endpoint.Text = managedEndpoint; }
+            else { managedEndpoint = endpoint.Text.ToString(); mode = "attach"; endpoint.Text = attachEndpoint; }
+            ShowMode();
+        }
+        modeButton.Accepted += (_, e) => { e.Handled = true; ToggleMode(); };
+        modeButton.KeyDown += (_, key) =>
+        {
+            if (key.Handled || key.KeyCode is not (KeyCode.Space or KeyCode.CursorLeft or KeyCode.CursorRight)) return;
+            key.Handled = true;
+            ToggleMode();
+        };
+        args.KeyDown += (_, key) =>
+        {
+            if (key.Handled || key.KeyCode != (KeyCode.Enter | KeyCode.ShiftMask)) return;
+            key.Handled = true;
+            args.InvokeCommand(Command.NewLine);
+        };
+        ShowMode();
         var notice = new Label { Id = "local-engine-notice", X = 2, Y = Pos.AnchorEnd(7), Width = Dim.Fill(4), Height = 3 };
         var cancel = new Button { Id = "local-engine-cancel", X = 2, Y = Pos.AnchorEnd(2), Text = Pref("cancel") };
         cancel.Accepted += (_, _) => { CloseOverlay(); ShowPreferences("local_engines", categoryPage: true); };
         var save = new Button { Id = "local-engine-save", X = Pos.AnchorEnd(13), Y = Pos.AnchorEnd(2), Text = Pref("save") };
         save.Accepted += (_, _) =>
         {
-            if (!int.TryParse(timeout.Text.ToString(), System.Globalization.NumberStyles.None,
-                    System.Globalization.CultureInfo.InvariantCulture, out var timeoutValue))
+            var timeoutValue = 120;
+            if (mode == "managed" && (!int.TryParse(timeout.Text.ToString(), System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out timeoutValue) || timeoutValue is < 1 or > 3600))
             { notice.Text = LocalEngineError("invalidTimeout"); timeout.SetFocus(); return; }
             var draft = new LocalEngineConfigurationDraft(providerId.Text.ToString(), mode,
                 endpoint.Text.ToString(),
                 mode == "managed" ? executable.Text.ToString() : null,
-                DecodeLocalArguments(args.Text.ToString()),
-                directory.Text.ToString(), timeoutValue);
+                mode == "managed" ? DecodeLocalArguments(args.Text.ToString()) : [],
+                mode == "managed" ? directory.Text.ToString() : null, timeoutValue);
             if (mode == "attach" && Uri.TryCreate(draft.BaseUrl.Trim(), UriKind.Absolute, out var server)
                 && server.AbsolutePath.Trim('/') is "")
                 draft = draft with { BaseUrl = draft.BaseUrl.Trim().TrimEnd('/') + "/v1" };
@@ -1049,9 +1086,10 @@ public sealed partial class TuiApp
         };
         frame.Add(notice, cancel, save,
             new Label { Id = "preferences-help", X = 2, Y = Pos.AnchorEnd(4), Width = Dim.Fill(4),
-                Height = 2, Text = Pref("local_reload") });
-        EnterNavigation.FocusFields(frame, save);
-        ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true; providerId.SetFocus();
+                Height = 2, Text = Pref("local_editor_keys") });
+        EnterNavigation.TraverseForm([providerId, modeButton, endpoint, executable, args, directory, timeout], save, cancel);
+        ApplyTheme(frame); _overlay = frame; _window.Add(frame); _preferencesReturnToCategory = true;
+        if (existing is null) providerId.SetFocus(); else modeButton.SetFocus();
     }
 
     private string LocalEngineMode(string mode) => mode == "managed" ? Pref("local_managed") : Pref("local_attach");

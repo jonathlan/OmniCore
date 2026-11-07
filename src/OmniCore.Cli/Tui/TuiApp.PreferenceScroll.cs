@@ -6,13 +6,15 @@ namespace OmniCore.Cli;
 
 public sealed partial class TuiApp
 {
-    private static void ConfigurePreferenceScroll(View panel, int contentHeight)
+    private static void ConfigurePreferenceScroll(View panel, int contentHeight) => ConfigurePreferenceScroll(panel, () => contentHeight);
+
+    private static Action ConfigurePreferenceScroll(View panel, Func<int> contentHeight)
     {
         panel.CanFocus = true;
         panel.VerticalScrollBar.VisibilityMode = ScrollBarVisibilityMode.Auto;
         void SizeContent()
         {
-            var size = new Size(Math.Max(1, panel.Viewport.Width), contentHeight);
+            var size = new Size(Math.Max(1, panel.Viewport.Width), contentHeight());
             if (panel.GetContentSize() != size) panel.SetContentSize(size);
         }
         panel.ViewportChanged += (_, _) => SizeContent();
@@ -31,5 +33,6 @@ public sealed partial class TuiApp
                 if (top != viewport.Top)
                     panel.Viewport = new Rectangle(viewport.X, Math.Max(0, top), viewport.Width, viewport.Height);
             };
+        return SizeContent;
     }
 }

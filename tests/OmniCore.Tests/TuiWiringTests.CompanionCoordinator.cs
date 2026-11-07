@@ -39,8 +39,8 @@ public sealed partial class TuiWiringTests
         fx.Wait(() => HubView(fx, "companion-hub-action").Enabled, "historial preparado para enviar");
         fx.Invoke(() => fx.App.Composer!.Text = "borrador principal sin enviar");
         Assert.Equal(0, host.Chats);
-        fx.Invoke(() => HubView(fx, "companion-chat-input").Text = "Hola mascota");
-        HubClick(fx, "companion-hub-action");
+        fx.Invoke(() => { var input = HubView(fx, "companion-chat-input"); input.Text = "Hola mascota"; input.SetFocus(); });
+        fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => HubView(fx, "companion-chat-history").Text.Contains("Hola, Juan"), "respuesta independiente");
         Assert.Equal(1, host.Chats); Assert.Null(host.Input);
         Assert.Equal("borrador principal sin enviar", fx.Read(() => fx.App.Composer!.Text));
@@ -50,6 +50,20 @@ public sealed partial class TuiWiringTests
         Assert.True(fx.Read(() => fx.App.Composer!.HasFocus));
         Assert.Equal("borrador principal sin enviar", fx.Read(() => fx.App.Composer!.Text));
     }, noColor: false);
+
+    [Fact]
+    public void Companion_chat_shows_an_explicit_notice_instead_of_an_empty_reply() => RunTuiTest(fx =>
+    {
+        SeedPlaygroundPet(fx, "fox", 1);
+        var host = new CompanionHubTurn(fx) { ChatHandler = (_, _) => System.Threading.Tasks.Task.FromResult(" \n ") };
+        fx.StartTui(turnHost: host, initialColumns: 80, initialRows: 25);
+        Type(fx, "/pet chat"); fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => Descendants(fx.App.MainWindow!).Any(v => v.Id == "companion-hub-action" && v.Enabled), "chat listo");
+        fx.Invoke(() => { var input = HubView(fx, "companion-chat-input"); input.Text = "¿Estás ahí?"; input.SetFocus(); });
+        EnterOnce(fx, () => HubView(fx, "companion-chat-history").Text.Contains("sin enviar una respuesta final"), "aviso en lugar de respuesta vacía");
+        Assert.Equal(1, host.Chats);
+        Assert.Contains(host.CompanionHub.DialogueTail(), message => message.Role == "assistant" && message.Text.Contains("respuesta final"));
+    });
 
     [Fact]
     public void Companion_remote_instruction_reaches_principal_without_changing_editor_or_focus() => RunTuiTest(fx =>
@@ -88,8 +102,12 @@ public sealed partial class TuiWiringTests
         fx.StartTui(turnHost: host, initialColumns: 120, initialRows: 40);
         Type(fx, "/pet memory"); fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => fx.App.Overlay?.Id == "companion-settings", "mantenimiento en una ventana");
-        fx.Invoke(() => { fx.App.Composer!.Text = "borrador privado"; HubView(fx, "companion-settings-memory-text").Text = "Mi nombre es Juan"; });
-        HubClick(fx, "companion-settings-add");
+        fx.Invoke(() => { fx.App.Composer!.Text = "borrador privado"; var edit = HubView(fx, "companion-settings-memory-text"); edit.Text = "Mi nombre es Juan"; edit.SetFocus(); });
+        fx.InjectKey(new Key(KeyCode.Tab));
+        fx.Wait(() => HubView(fx, "companion-settings-memory-project").HasFocus, "Tab pasa del texto a Proyecto sin insertar caracteres");
+        Assert.Equal("Mi nombre es Juan", HubView(fx, "companion-settings-memory-text").Text);
+        EnterOnce(fx, () => HubView(fx, "companion-settings-add").HasFocus, "Enter de Proyecto lleva a Añadir");
+        fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => host.CompanionHub.MaintainMemory("personal").Any(f => f.Text.Contains("Juan")), "guardado local");
         Assert.Equal("borrador privado", fx.Read(() => fx.App.Composer!.Text));
         Assert.Equal(0, host.Chats); ExportPreferenceFrame(fx, 120, 40, "companion-memory", "Juan");

@@ -2,6 +2,8 @@ using OmniCore.Client;
 using OmniCore.Protocol;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
+using Terminal.Gui.Drivers;
+using Terminal.Gui.Input;
 
 namespace OmniCore.Cli;
 
@@ -202,7 +204,12 @@ public sealed partial class TuiApp
             Width = Dim.Func(_ => Math.Min(24, Math.Max(4, frame.Viewport.Width - 18))), Text = _pet.Name ?? "Omni" };
         var rename = new Button { Id = "companion-rename", X = Pos.Right(name) + 2, Y = Pos.Func(_ => ControlsY()), Height = 2,
             Text = _locale == "es" ? "Renombrar" : "Rename" };
-        EnterNavigation.Focus(rename, name);
+        name.KeyDown += (_, key) =>
+        {
+            if (key.Handled || key.KeyCode != KeyCode.Enter) return;
+            key.Handled = true;
+            rename.InvokeCommand(Command.Accept);
+        };
         rename.Accepted += (_, _) => RunPetAction("rename " + name.Text, false);
         var visibility = new Button { Id = "companion-visible", X = 2, Y = Pos.Func(_ => ControlsY() + 2), Height = 2,
             Text = PetVisibilityLabel() };
@@ -227,7 +234,7 @@ public sealed partial class TuiApp
         play.Accepted += (_, args) => { args.Handled = true;
             RunPetAction(_petPlayground.Pose(PetPlayWidth).Outside ? "home" : "play", false); };
         frame.Add(play);
-        ApplyTheme(frame); _overlay = frame; _window.Add(frame); frame.SetFocus(); RenderCompanion();
+        ApplyTheme(frame); _overlay = frame; _window.Add(frame); name.SetFocus(); RenderCompanion();
     }
     private string PetVisibilityLabel() => _pet?.Preferences.Visible == true
         ? _locale == "es" ? "Ocultar mascota" : "Hide companion"

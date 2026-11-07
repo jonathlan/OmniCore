@@ -618,6 +618,16 @@ en editores de varias líneas conserva el salto de línea. Los paneles de lectur
 permiten pasar a **Volver/Cerrar** con Enter. Los cambios de permisos y las
 acciones que requieren confirmación conservan su revisión y cancelación explícitas.
 
+En **Motores locales**, las cinco acciones están juntas en una columna. En el
+editor, **Enter** y **Tab** recorren los campos y **Mayús+Tab** vuelve al anterior.
+**Espacio** o **←/→** cambian entre Servidor existente y Administrado. Este último
+muestra ejecutable, argumentos, directorio y tiempo de espera; **Mayús+Enter**
+añade otra línea en argumentos. El último campo lleva a **Guardar**.
+
+En **F3**, selecciona una fila y abre **Nombre corto…** para elegir la etiqueta
+que quieres ver en el encabezado y el selector. Un nombre vacío restaura la
+presentación original. El motor sigue recibiendo el identificador exacto.
+
 En **F4 → General y apariencia → Tema de colores…** hay **16 temas**:
 OmniCore, OpenCode, Claude Light, Claude Dark, Codex, OmniLlama, OmniLlama Light,
 Nord, Dracula, Catppuccin Mocha, Catppuccin Latte, Tokyo Night, Gruvbox,

@@ -16,6 +16,75 @@ namespace OmniCore.Tests;
 public sealed class ExplorerVisibleResponseIntegrationTests
 {
     [Theory]
+    [InlineData("empty", "cli.runtime.turn.no_final_answer")]
+    [InlineData("step-limit", "cli.runtime.turn.step_limit_without_answer")]
+    [InlineData("recover", null)]
+    [InlineData("reserved", null)]
+    [InlineData("unwanted-tool", "cli.runtime.turn.no_final_answer")]
+    public void Local_harness_distinguishes_missing_answer_and_step_limit_and_finalizes_without_tools(string scenario, string? diagnostic)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "omni-final-answer-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var store = new SqliteEventStore(Path.Combine(root, "journal.db"));
+        try
+        {
+            var codecs = EventCodecs.Create();
+            var artifacts = new FileArtifactStore(Path.Combine(root, "blobs"));
+            var session = SessionId.New();
+            var run = TestRun.Open(store, session, mode: RunMode.Plan);
+            var catalog = new FakeCatalog();
+            var executor = ScriptedToolExecutor.WithWorkspace(catalog,
+                new ScriptedPermissionPolicy(new Dictionary<string, PermissionDecision>()), root);
+            var requests = new List<ModelRequest>();
+            var first = scenario is "step-limit" or "reserved"
+                ? CompanionToolsTests.Response([new ToolCallBlock(ToolCallId.New(), "read-fixture", "filesystem.list", "{\"path\":\".\"}")])
+                : CompanionToolsTests.Response([new ReasoningBlock("private draft only", ReasoningVisibility.Full, null)]);
+            var last = scenario == "unwanted-tool"
+                ? CompanionToolsTests.Response([new ToolCallBlock(ToolCallId.New(), "unwanted", "filesystem.list", "{\"path\":\".\"}")])
+                : CompanionToolsTests.Response([new TextBlock("Respuesta visible")]);
+            var allowsFinalPass = scenario is "recover" or "reserved" or "unwanted-tool";
+            var turn = new ExplorerTurn((request, _) => { requests.Add(request); return requests.Count == 1 ? first : last; },
+                executor, catalog, new ContextMaterializer(new FakeTokenCounter(), []),
+                new ExecutionFingerprint("fixture", "h", "t", "c", "o", "M10"),
+                new ModelSelection(new ModelIdValue("scripted"), 8192, ToolMode.Direct, null),
+                store, codecs, artifacts, new InMemoryAuditSink(), new RedactionPolicy(), billingMode: BillingMode.Local,
+                maxModelStepsPerTurn: allowsFinalPass ? 2 : 1);
+            var result = turn.Ask("Resume el proyecto", "system", session, run.RunId, run.RootLane, "", TestContext.Current.CancellationToken);
+            var events = store.ReadFrom(session, 1).Select(codecs.Decode).ToArray();
+            Assert.Equal(allowsFinalPass ? 2 : 1, requests.Count);
+            if (allowsFinalPass)
+            {
+                Assert.Empty(requests[1].Tools);
+                Assert.Equal("none", requests[1].ToolChoice.Mode);
+                Assert.Contains("normal assistant response", requests[1].Instructions);
+                Assert.Equal(requests[0].Model.Model, requests[1].Model.Model);
+                if (scenario == "reserved") Assert.Single(result.ToolCalls);
+                else Assert.Empty(result.ToolCalls);
+            }
+            if (diagnostic is null)
+            {
+                Assert.Equal(StopReason.EndTurn, result.StopReason);
+                Assert.Equal("Respuesta visible", result.FinalText);
+                Assert.Single(events.OfType<TurnCompleted>());
+            }
+            else
+            {
+                Assert.Equal(StopReason.Error, result.StopReason);
+                Assert.Null(result.FinalText);
+                Assert.Equal(diagnostic, result.FailureDiagnostic);
+                Assert.Equal(diagnostic, Assert.Single(events.OfType<TurnAbandoned>()).Reason);
+                Assert.Empty(events.OfType<TurnCompleted>());
+            }
+        }
+        finally
+        {
+            var connection = (SqliteConnection)store.Connection;
+            store.Close(); SqliteConnection.ClearPool(connection); connection.Dispose();
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Theory]
     [InlineData("first ", "second")]
     [InlineData("| A | B |\n", "|---|---|\n| 1 | 2 |")]
     [InlineData("```cs\n", "int value = 42;\n```")]

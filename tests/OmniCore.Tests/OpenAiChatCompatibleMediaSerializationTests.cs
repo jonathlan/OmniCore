@@ -10,6 +10,36 @@ using OmniCore.Models;
 public sealed class OpenAiChatCompatibleMediaSerializationTests
 {
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async System.Threading.Tasks.Task Chat_stream_preserves_terminal_answer_at_eof_and_rejects_incomplete_streams(bool complete)
+    {
+        const string reasoning = "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"draft\"}}]}\n\n";
+        const string final = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"visible answer\"},\"finish_reason\":\"stop\"}]}";
+        using var handler = new CaptureHandler(complete ? reasoning + final : reasoning);
+        var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
+            "https://fixture.invalid/v1", AuthConfig.None(), false, false, true);
+        var provider = new OpenAiChatCompatibleProvider(descriptor, new NoSecrets(), () => new HttpClient(handler, false));
+        var request = new ModelRequest(new ModelSelection(new ModelIdValue("fixture-model"), 4096, ToolMode.Direct, null),
+            [new ModelMessage(MessageRole.User, [new TextBlock("Question")])], null, [], ToolChoice.None(), null, null, null, null);
+        var events = new List<ModelStreamEvent>();
+        async System.Threading.Tasks.Task Read()
+        {
+            await foreach (var item in provider.StreamAsync(request, TestContext.Current.CancellationToken)) events.Add(item);
+        }
+        if (!complete)
+        {
+            await Assert.ThrowsAsync<ModelProviderException>(Read);
+            Assert.Empty(events.OfType<ResponseCompleted>());
+            return;
+        }
+        await Read();
+        var result = Assert.Single(events.OfType<ResponseCompleted>()).Response;
+        Assert.Equal("visible answer", Assert.Single(result.Content.OfType<TextBlock>()).Text);
+        Assert.Single(result.Content.OfType<ReasoningBlock>());
+    }
+
+    [Theory]
     [InlineData("llamaCpp", true)]
     [InlineData(null, false)]
     [InlineData("other", false)]

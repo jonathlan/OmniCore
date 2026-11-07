@@ -326,9 +326,17 @@ public sealed partial class TuiApp
         _ = Task.Run(async () =>
         {
             string reply;
-            try { hub.AppendDialogue(user); reply = await _turnHost.CompanionChatAsync(history, focusNotice, cancellation.Token).ConfigureAwait(false); }
+            try
+            {
+                hub.AppendDialogue(user);
+                reply = await _turnHost.CompanionChatAsync(history, focusNotice, cancellation.Token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(reply)) reply = _localization.Resolve("cli.runtime.turn.no_final_answer");
+            }
             catch (OperationCanceledException) { reply = "La consulta se canceló o agotó su tiempo de espera."; }
-            catch (Exception error) { reply = "No pude conversar: " + OmniCore.Host.OmniCliRuntime.RedactSensitive(error.Message); }
+            catch (Exception error)
+            {
+                reply = Pref("companion_chat_failed") + ": " + OmniCore.Host.OmniCliRuntime.RedactSensitive(_localization.ResolveWire(error.Message));
+            }
             var result = history.Append(new CompanionChatMessage("assistant", reply, Guid.NewGuid().ToString())).ToArray();
             CompanionHubSnapshot? snapshot = null;
             try { snapshot = hub.Read(); } catch (Exception) { }

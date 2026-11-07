@@ -98,10 +98,10 @@ public sealed partial class TuiApp
         { _petCellRefreshAt = null; RefreshPetCellSize(_petProbeGeneration); }
         if (_overlay?.Id == "companion-settings")
         {
-            var mode = _overlay.SubViews.FirstOrDefault(view => view.Id == "companion-settings-visual");
+            var mode = FindPreferenceView(_overlay, "companion-settings-visual");
             var label = "Visual: " + selection.Requested + " → " + selection.Effective;
             if (mode is not null && mode.Text != label) mode.Text = label;
-            if (_petVisualNotice is not null && _overlay.SubViews.FirstOrDefault(view => view.Id == "companion-settings-status") is { } status
+            if (_petVisualNotice is not null && FindPreferenceView(_overlay, "companion-settings-status") is { } status
                 && string.IsNullOrEmpty(status.Text)) status.Text = _petVisualNotice;
         }
     }

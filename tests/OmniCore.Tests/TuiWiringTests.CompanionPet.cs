@@ -12,6 +12,21 @@ namespace OmniCore.Tests;
 public sealed partial class TuiWiringTests
 {
     [Fact]
+    public void Companion_detail_starts_in_the_name_field_and_enter_renames() => RunTuiTest(fx =>
+    {
+        SeedPlaygroundPet(fx, "fox", 1);
+        fx.StartTui(initialColumns: 80, initialRows: 25);
+        Type(fx, "/pet");
+        EnterOnce(fx, () => fx.App.Overlay?.Id == "companion-detail", "abre la ficha");
+        var name = EnterControl(fx, "companion-name");
+        Assert.True(fx.Read(() => name.HasFocus));
+        fx.Invoke(() => name.Text = "Juancho de prueba");
+        EnterOnce(fx, () => fx.App.CompanionPet?.Name == "Juancho de prueba", "Enter aplica el nombre");
+        Assert.Equal("Juancho de prueba", new CompanionPetService(Path.Combine(fx.Root, "host-data")).Status("terminal").Name);
+        Assert.Equal("companion-detail", fx.App.Overlay!.Id);
+    });
+
+    [Fact]
     public void Companion_hide_button_restores_the_panel_and_detail_hide_returns_to_chat() => RunTuiTest(fx =>
     {
         fx.StartTui(initialColumns: 120, initialRows: 40);

@@ -18,7 +18,7 @@ public sealed partial class CompanionCoordinator
     public static CompanionModelOption SelectChatModel(CompanionChatSettings settings, IReadOnlyList<CompanionModelOption> models)
     {
         var model = models.SingleOrDefault(m => m.Id == settings.ModelId)
-            ?? throw new InvalidOperationException("Elige un modelo propio para la mascota en Configuración > Modelos y ejecución > Mascota: modelo y consumo.");
+            ?? throw new InvalidOperationException("companion.chat.model_required");
         if (settings.LocalOnly && !model.Local) throw new InvalidOperationException("Solo modelo local está activado. Elige un modelo local; no se usará una ruta remota como respaldo.");
         return model;
     }

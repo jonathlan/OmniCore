@@ -18,7 +18,10 @@ public sealed partial class TuiWiringTests
         Type(fx, "/pet model"); fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => fx.App.Overlay?.Id == "companion-settings" && HubView(fx, "companion-settings-save").Enabled, "configuración independiente preparada");
         Assert.Contains("120 / 40", fx.Read(() => HubView(fx, "companion-settings-usage").Text));
-        HubClick(fx, "companion-settings-save");
+        Assert.True(fx.Read(() => HubView(fx, "companion-settings-model").HasFocus));
+        EnterOnce(fx, () => HubView(fx, "companion-settings-save").HasFocus, "Enter del modelo lleva a Guardar modelo");
+        Assert.Null(host.CompanionHub.ChatSettings().ModelId);
+        fx.InjectKey(new Key(KeyCode.Enter));
         fx.Wait(() => host.CompanionHub.ChatSettings().ModelId == "cloud-chat", "modelo por consumo guardado sin autorización del principal");
         fx.Wait(() => HubView(fx, "companion-settings-local").Enabled, "guardado finalizado");
         HubClick(fx, "companion-settings-local");

@@ -47,6 +47,32 @@ internal static class EnterNavigation
             };
     }
 
+    public static void TraverseForm(View[] fields, Button save, Button cancel)
+        => Traverse([.. fields, save, cancel], fields.Length);
+
+    public static void TraverseTabs(params View[] order) => Traverse(order, 0);
+
+    private static void Traverse(View[] order, int enterFieldCount)
+    {
+        for (var i = 0; i < order.Length; i++)
+        {
+            var index = i;
+            order[i].KeyDown += (_, key) =>
+            {
+                if (key.Handled) return;
+                var delta = key.KeyCode == (KeyCode.Tab | KeyCode.ShiftMask) ? -1
+                    : key.KeyCode == KeyCode.Tab || key.KeyCode == KeyCode.Enter && index < enterFieldCount ? 1 : 0;
+                if (delta == 0) return;
+                key.Handled = true;
+                for (var step = 1; step < order.Length; step++)
+                {
+                    var next = order[(index + delta * step + order.Length) % order.Length];
+                    if (Available(next) && next.SetFocus()) return;
+                }
+            };
+        }
+    }
+
     public static void Activate(ListView target, TextField source)
     {
         source.KeyDown += (_, key) =>

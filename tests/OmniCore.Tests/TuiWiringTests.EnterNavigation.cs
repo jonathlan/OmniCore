@@ -169,21 +169,73 @@ public sealed partial class TuiWiringTests
     });
 
     [Fact]
-    public void Enter_in_local_engine_multiline_arguments_keeps_newlines_and_in_a_field_focuses_save() => RunTuiTest(fx =>
+    public void Local_engine_editor_traverses_fields_and_argument_lines_without_inserting_tabs() => RunTuiTest(fx =>
     {
         var host = new TuiLocalEngineHost(Path.Combine(fx.Root, "enter-local-config"));
-        fx.StartTui(localEngines: host);
+        fx.StartTui(localEngines: host, initialColumns: 80, initialRows: 25);
         KeyWithEffect(fx, KeyCode.F4, () => fx.App.Overlay is not null, "preferencias visibles");
         ChoosePreferenceCategory(fx, "local_engines");
         ClickId(fx, "local-engine-add");
         var before = host.Read(default).Revision;
+        bool Focused(string id) => EnterControl(fx, "local-engine-" + id).HasFocus;
         var arguments = (TextView)EnterControl(fx, "local-engine-arguments");
+        Assert.False(arguments.Visible);
+        EnterOnce(fx, () => Focused("mode"), "Enter desde ID enfoca Modo");
+        fx.InjectKey(new Key(KeyCode.Space));
+        fx.Wait(() => arguments.Visible, "Espacio elige Administrado y muestra los campos");
+        Assert.NotEqual(Terminal.Gui.Drawing.LineStyle.None, arguments.BorderStyle);
+        EnterOnce(fx, () => Focused("endpoint"), "Enter en Modo conserva la elección y avanza");
+        EnterOnce(fx, () => Focused("executable"), "Enter pasa al ejecutable");
+        fx.InjectKey(new Key(KeyCode.Tab));
+        fx.Wait(() => arguments.HasFocus, "Tab entra a argumentos");
         fx.Invoke(() => { arguments.Text = "--fixture"; arguments.SetFocus(); });
-        EnterOnce(fx, () => arguments.Text.ToString()!.Contains('\n'), "Enter añade una línea a los argumentos");
+        fx.InjectKey(new Key(KeyCode.Enter | KeyCode.ShiftMask));
+        fx.Wait(() => arguments.Text.ToString()!.Contains('\n'), "Mayús+Enter añade una línea");
         Assert.True(arguments.HasFocus);
-        fx.Invoke(() => EnterControl(fx, "local-engine-endpoint").SetFocus());
-        EnterOnce(fx, () => EnterControl(fx, "local-engine-save").HasFocus, "Enter del campo lleva a Guardar motor");
+        var draft = arguments.Text.ToString();
+        fx.InjectKey(new Key(KeyCode.Tab));
+        fx.Wait(() => Focused("directory"), "Tab sale del editor de argumentos");
+        Assert.Equal(draft, arguments.Text.ToString());
+        fx.InjectKey(new Key(KeyCode.Tab | KeyCode.ShiftMask));
+        fx.Wait(() => arguments.HasFocus, "Mayús+Tab vuelve al editor");
+        EnterOnce(fx, () => Focused("directory"), "Enter pasa de argumentos a directorio");
+        Assert.Equal(draft, arguments.Text.ToString());
+        EnterOnce(fx, () => Focused("timeout"), "Enter pasa al tiempo de espera");
+        EnterOnce(fx, () => Focused("save"), "Enter del último campo enfoca Guardar");
         Assert.Equal(before, host.Read(default).Revision);
+    });
+
+    [Fact]
+    public void Model_short_name_is_user_supplied_reversible_and_never_changes_the_routing_id() => RunTuiTest(fx =>
+    {
+        const string modelId = @"D:\Fixture Models\Nested\Exact Model.gguf";
+        const string alias = "Mi modelo corto";
+        var key = new ModelPolicyKeyDto("local", modelId);
+        var policies = ModelPolicyHost.Create(Path.Combine(fx.Root, "short-name-policies"),
+            [new ModelRegistryModelDescriptor(modelId, "local", 8192, 8192, 2048)]);
+        var workspace = ModelPolicyHost.WorkspaceSelectionId(Environment.CurrentDirectory);
+        policies.Select(workspace, key, modelId, true, default);
+        fx.StartTui(policies: policies, initialColumns: 120, initialRows: 35);
+        var path = Path.Combine(fx.Root, "tui-animations.model-names");
+        Assert.Contains(@"D:\Fixture", fx.App.Header!.Text);
+        KeyWithEffect(fx, KeyCode.F3, () => fx.App.Overlay?.Id == "omni-model-palette", "F3 abre el selector");
+        void ChangeName(string name)
+        {
+            fx.Invoke(() => EnterControl(fx, "omni-picker-short-name").SetFocus());
+            EnterOnce(fx, () => fx.App.Overlay?.Id == "model-display-name", "Enter abre Nombre corto");
+            fx.Invoke(() => EnterControl(fx, "model-display-name-input").Text = name);
+            EnterOnce(fx, () => EnterControl(fx, "model-display-name-save").HasFocus, "Enter enfoca Guardar nombre");
+            EnterOnce(fx, () => fx.App.Overlay?.Id == "omni-model-palette", "Guardar vuelve al selector");
+        }
+        ChangeName(alias);
+        Assert.Contains(alias, fx.App.Header!.Text);
+        Assert.Contains(PickerItems(fx), row => row.Contains(alias, StringComparison.Ordinal));
+        Assert.Equal(alias, new TuiModelDisplayNames(path).Read(modelId));
+        Assert.Equal(modelId, policies.CurrentSelection(workspace, default)!.ModelId);
+        ChangeName("");
+        Assert.Contains(@"D:\Fixture", fx.App.Header!.Text);
+        Assert.Null(new TuiModelDisplayNames(path).Read(modelId));
+        Assert.Equal(modelId, policies.CurrentSelection(workspace, default)!.ModelId);
     });
 
     [Fact]

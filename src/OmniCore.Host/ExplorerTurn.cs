@@ -294,6 +294,7 @@ public sealed class ExplorerTurn
     private readonly decimal _dailyCapUsd;
     private readonly bool _monetaryBilling;
     private readonly bool _zeroMonetaryExposure;
+    private readonly bool _finalizeLocalAnswers;
 
     private readonly QuestionnaireInteractionService? _questionnaires;
 
@@ -393,6 +394,7 @@ public sealed class ExplorerTurn
         _zeroMonetaryExposure = selection.OutputModalities.All(modality => modality == "text")
             && ModelInvocationCostBound.Quote(selection, pricing, modelContextCapacity,
                 maximumGenerationRequestAttempts) == 0m;
+        _finalizeLocalAnswers = billingMode == BillingMode.Local && selection.OutputModalities.All(modality => modality == "text");
         // Local execution and included subscription usage have no per-invocation USD charge.
         // Old Session snapshots may still carry a monetary limit; it cannot block these routes.
         // Undeclared billing retains conservative monetary admission for explicitly capped work.
@@ -1312,10 +1314,10 @@ public sealed class ExplorerTurn
             : ReadTurnToolCallCount(stream, turnId) >= EffectiveMaxToolCalls()
             ? Array.Empty<ToolDefinition>() : VisibleTools(discoveredToolIds, discoveredToolOrder)
                 .Where(tool => !lifecycleDeniedToolIds.Contains(tool.Name)).ToArray();
-        void RefreshStepFingerprint(IReadOnlyList<ToolDefinition> requestTools)
+        void RefreshStepFingerprint(IReadOnlyList<ToolDefinition> requestTools, string? stepInstruction = null)
         {
             var configured = RuntimeFingerprintFactory.PrepareTurnConfiguration(_fingerprint, _catalog,
-                requestTools, EffectiveSystemPrompt(instruction), PlanProjection.Replay(_codecs, initialPlanEvents).Latest(),
+                requestTools, EffectiveSystemPrompt(stepInstruction ?? instruction), PlanProjection.Replay(_codecs, initialPlanEvents).Latest(),
                 _artifacts, laneProfileId, _activeSkills, _resolvedAgentProfile, fingerprintAuthority,
                 instructionSnapshot, reasoningResolution, _toolPreferences);
             if (!string.Equals(configured.Fingerprint.Hash(), stepFingerprint.Hash(), StringComparison.Ordinal))
@@ -1834,6 +1836,9 @@ public sealed class ExplorerTurn
             var finalResponseParts = recoveredImageParts;
             var finalImageModelStepIndex = -1;
             var stop = StopReason.EndTurn;
+            var providerEndedTurn = false;
+            var finalizeNext = false;
+            var finalizationAttempted = false;
             var recoveredStepCount = 0;
             string? recoveredResponseArtifactId = null;
             var finalResponseAlreadyPublished = false;
@@ -1858,8 +1863,13 @@ public sealed class ExplorerTurn
                 var modelHooks = step == nextModelStepIndex ? initialModelHooks : DispatchLifecycle(LifecyclePoint.BeforeModel);
                 if (modelHooks.Denied || lifecycleDeniedTurn || !ResolvePendingLifecycleValidations())
                     throw new LifecycleHookWithheldException("lifecycle.hook.model_invocation_withheld");
-                var requestTools = RequestTools();
-                RefreshStepFingerprint(requestTools);
+                var answerOnly = _finalizeLocalAnswers && !dedicatedImageRoute && forcedToolName is null
+                    && (finalizeNext || step > 0 && step + 1 == EffectiveMaxModelSteps() && ReadTurnToolCallCount(stream, turnId) > 0);
+                finalizeNext = false;
+                finalizationAttempted |= answerOnly;
+                var stepInstruction = answerOnly ? instruction + LocalAnswerCompletion.Instruction : instruction;
+                var requestTools = answerOnly ? Array.Empty<ToolDefinition>() : RequestTools();
+                RefreshStepFingerprint(requestTools, stepInstruction);
                 if (_quotaAdmission?.Invoke(sessionId, runId, laneId, turnId, nextModelStepIndex) is { } quotaInteraction)
                     return new TurnResult(null, StopReason.InputRequired, steps, usage, allToolCalls.ToArray(), null,
                         quotaInteraction);
@@ -1872,7 +1882,7 @@ public sealed class ExplorerTurn
                 if (step > 0 || steering.Count > 0)
                 {
                     preparedContext = MaterializeTurnContext(stream, sessionId, runId, laneId, turnId,
-                        workingStateText, instruction, messages, messageOwners, stepFingerprint, cancellationToken, CanInvokeMeta,
+                        workingStateText, stepInstruction, messages, messageOwners, stepFingerprint, cancellationToken, CanInvokeMeta,
                         hasReservationBoundary ? ReserveMeta : null,
                         hasReservationBoundary ? id => _spendReservations!.MarkDispatched(MetaReservationId(id)) : null,
                         hasReservationBoundary ? FinishMeta : null,
@@ -1897,18 +1907,18 @@ public sealed class ExplorerTurn
 
                 var request = new ModelRequest(
                     _selection,
-                    _selection.Route?.ReasoningCapability.ReplayPolicy == ReasoningReplayPolicy.None
+                    answerOnly || _selection.Route?.ReasoningCapability.ReplayPolicy == ReasoningReplayPolicy.None
                         ? preparedContext.Messages.Select(message => new ModelMessage(message.Role,
                             WithoutOpaqueReplay(message.Content))).ToArray()
                         : preparedContext.Messages,
                     RenderContext(materialized),
                     requestTools,
-                    dedicatedImageRoute ? ToolChoice.None()
+                    dedicatedImageRoute || answerOnly ? ToolChoice.None()
                         : forcedToolName is { } exactTool ? ToolChoice.Exact(exactTool) : ToolChoice.Auto(),
                     null, _selection.Reasoning, new CacheHints(4, "automatic"),
                     // None is an explicit outbound replay prohibition. Keep the checkpoint
                     // and its integrity/usage evidence, but never resend it (including resume).
-                    _selection.Route?.ReasoningCapability.ReplayPolicy == ReasoningReplayPolicy.None
+                    answerOnly || _selection.Route?.ReasoningCapability.ReplayPolicy == ReasoningReplayPolicy.None
                         ? null : continuation);
 
                 ModelResponse resolved;
@@ -2169,6 +2179,21 @@ public sealed class ExplorerTurn
                     }
                 }
 
+                if (answerOnly && toolBlocks.Count > 0)
+                {
+                    // A server may ignore tool_choice. Never dispatch a tool in the answer pass.
+                    finalText = null;
+                    stop = StopReason.EndTurn;
+                    providerEndedTurn = true;
+                    break;
+                }
+                if (_finalizeLocalAnswers && !dedicatedImageRoute && !finalizationAttempted
+                    && step + 1 < EffectiveMaxModelSteps() && LocalAnswerCompletion.NeedsFinalAnswer(resolved))
+                {
+                    finalizeNext = true;
+                    continue;
+                }
+
                 if (resolved.StopReason != StopReason.ToolUse || toolBlocks.Count == 0)
                 {
                     var completionHooks = DispatchLifecycle(LifecyclePoint.BeforeCompletion);
@@ -2192,6 +2217,7 @@ public sealed class ExplorerTurn
                             finalResponseParts.Add(("image", null, imageIndex++));
                     }
                     stop = resolved.StopReason;
+                    providerEndedTurn = stop == StopReason.EndTurn;
                     break;
                 }
 
@@ -2587,9 +2613,11 @@ public sealed class ExplorerTurn
 
             if (finalText is null && finalImages.Count == 0 && stop == StopReason.EndTurn)
             {
+                var reason = providerEndedTurn ? "cli.runtime.turn.no_final_answer" : "cli.runtime.turn.step_limit_without_answer";
                 AppendTerminalTurn(stream, sessionId, runId, laneId, turnId,
-                    new TurnAbandoned(turnId, "Se agotó el límite de pasos del Explorer"));
-                return new TurnResult(null, StopReason.Error, steps, usage, allToolCalls.ToArray(), null);
+                    new TurnAbandoned(turnId, reason));
+                return new TurnResult(null, StopReason.Error, steps, usage, allToolCalls.ToArray(), null)
+                    { TurnId = turnId, FailureDiagnostic = reason };
             }
 
             // Respuesta como artifact + ModelCompleted (persistencia del Turn).

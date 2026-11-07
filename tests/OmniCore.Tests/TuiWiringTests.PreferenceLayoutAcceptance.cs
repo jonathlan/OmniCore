@@ -21,19 +21,18 @@ public sealed partial class TuiWiringTests
             localeSelection: new LocaleSelection(locale, LocaleSelectionSource.CommandLine));
         KeyWithEffect(fx, KeyCode.F4, () => fx.App.Overlay is not null, "preferences visible");
         ChoosePreferenceCategory(fx, "local_engines", locale);
-        fx.Wait(() => Descendants(fx.App.Overlay!).Any(view => view.Id == "local-engine-runtime" && view.Frame.Height == 2),
+        fx.Wait(() => Descendants(fx.App.Overlay!).Any(view => view.Id == "local-engine-runtime" && view.Frame.Height == 1),
             "localized engine layout complete");
         fx.Invoke(() =>
         {
             var views = Descendants(fx.App.Overlay!).Where(view => !string.IsNullOrEmpty(view.Id))
                 .ToDictionary(view => view.Id!, StringComparer.Ordinal);
-            var add = views["local-engine-add"].Frame;
-            var edit = views["local-engine-edit"].Frame;
             var runtime = views["local-engine-runtime"].Frame;
-            var delete = views["local-engine-delete"].Frame;
             var notice = views["local-engine-notice"].Frame;
-            Assert.True(runtime.Top >= add.Bottom && delete.Top >= edit.Bottom);
-            Assert.True(notice.Top > Math.Max(runtime.Bottom, delete.Bottom));
+            var actions = new[] { "add", "edit", "runtime", "discover", "delete" }.Select(id => views["local-engine-" + id].Frame).ToArray();
+            Assert.All(actions, action => Assert.Equal(actions[0].Left, action.Left));
+            Assert.Equal(Enumerable.Range(actions[0].Top, 5), actions.Select(action => action.Top));
+            Assert.True(notice.Top >= actions[^1].Bottom);
             Assert.True(views["preferences-panel"].GetContentSize().Height >= notice.Bottom);
             Assert.Equal(3, notice.Height);
             var runtimeLabel = views["local-engine-runtime"].Text.ToString()!;
