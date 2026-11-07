@@ -10,9 +10,20 @@ public static partial class SessionUsageReporter
 {
     /// <summary>Unique invocations, not repeated UsageUpdated samples or final-turn summaries.</summary>
     public static ConversationUsageMeasurement ReadConversation(IEventStore store, IEventCodecRegistry codecs,
+        IArtifactStore artifacts, SessionId session) =>
+        ReadUsage(store.ReadFrom(session, 1).ToArray(), codecs, artifacts, session);
+
+    internal static long? ReadTurnTokenTotal(IEventStore store, IEventCodecRegistry codecs, IArtifactStore artifacts,
+        SessionId session, TurnId turn)
+    {
+        var events = store.ReadFrom(session, 1).Where(item => item.TurnId == turn).ToArray();
+        var measurement = ReadUsage(events, codecs, artifacts, session);
+        return measurement.ModelInvocations > 0 ? measurement.Total.Value : null;
+    }
+
+    private static ConversationUsageMeasurement ReadUsage(DomainEvent[] events, IEventCodecRegistry codecs,
         IArtifactStore artifacts, SessionId session)
     {
-        var events = store.ReadFrom(session, 1).ToArray();
         var steps = new Dictionary<string, (TokenUsage? Usage, decimal? Cost, TokenUsageFields Fields,
             GenerationRequestAttemptEvidence? Attempts, bool CostComplete, bool ProviderReportedCost)>();
         var stepTurns = new HashSet<TurnId>();

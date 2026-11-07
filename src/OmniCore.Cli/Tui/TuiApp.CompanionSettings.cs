@@ -142,9 +142,12 @@ public sealed partial class TuiApp
                 _uiActions.Enqueue(() => { if (_overlay != frame) return; all = available; localOnly = settings.LocalOnly; selectedId = settings.ModelId;
                     _companionQuiet = quiet; attention = animation; notices.Text = "Avisos: " + (quiet ? "No" : "Sí"); animate.Text = "Atención: " + (attention ? "Sí" : "No");
                     var incomplete = totals.Any(t => t.MeasuredTokenRequests < t.Requests) ? " · incompletos" : "";
+                    var measuredRequests = totals.Sum(t => t.MeasuredTokenRequests);
+                    var inputTokens = CompanionTokenCount(totals.Sum(t => t.Input), measuredRequests);
+                    var outputTokens = CompanionTokenCount(totals.Sum(t => t.Output), measuredRequests);
                     var reported = totals.Sum(t => t.ReportedCostResponses) > 0 ? totals.Sum(t => t.ReportedUsd).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) : "s/d";
                     var estimated = totals.Sum(t => t.PricedResponses) > 0 ? totals.Sum(t => t.EstimatedUsd).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) : "s/d";
-                    usage.Text = $"Consultas: {totals.Sum(t => t.Requests)} · Tokens: {totals.Sum(t => t.Input):N0} / {totals.Sum(t => t.Output):N0}{incomplete}\nUSD: {reported} reportados · {estimated} estimados";
+                    usage.Text = $"Consultas: {totals.Sum(t => t.Requests)} · Tokens: {inputTokens} / {outputTokens}{incomplete}\nUSD: {reported} reportados · {estimated} estimados";
                     status.Text = ""; FilterModels(); ReloadMemory(); });
             }
             catch (Exception error) { Report(error); }

@@ -317,6 +317,15 @@ public sealed partial class OmniCliRuntime : IDisposable
     private string ExternalDiagnostic(string? value) => Text(Localized("cli.runtime.diagnostic.external",
         ("value", string.IsNullOrWhiteSpace(value) ? "—" : value)));
 
+    private string TurnSummary(OmniServer server, IArtifactStore artifacts, SessionId sessionId, ExplorerTurn.TurnResult result)
+    {
+        var tokens = result.TurnId is { } turnId
+            ? SessionUsageReporter.ReadTurnTokenTotal(server.AcquireStore(), server.AcquireCodecs(), artifacts, sessionId, turnId)
+            : null;
+        return Text(Localized("cli.runtime.turn.summary", ("reason", StopReasonLabel(result.StopReason)),
+            ("steps", result.Steps.ToString()), ("tokens", tokens?.ToString() ?? "—")));
+    }
+
     internal void ReportTurnFailureDiagnostic(ExplorerTurn.TurnResult result, Action<string> writeLine)
     {
         if (result.FailureDiagnostic is "cli.runtime.turn.no_final_answer" or "cli.runtime.turn.step_limit_without_answer")
@@ -4940,10 +4949,7 @@ public sealed partial class OmniCliRuntime : IDisposable
                 writeLine(ResolveWire(result.FinalText));
             }
 
-            writeLine(Text(Localized("cli.runtime.turn.summary",
-                ("reason", StopReasonLabel(result.StopReason)),
-                ("steps", result.Steps.ToString()),
-                ("tokens", (result.Usage.Input + result.Usage.Output).ToString()))));
+            writeLine(TurnSummary(server, artifacts, sessionId, result));
             ReportTurnFailureDiagnostic(result, writeLine);
             if (HandleStallOutcome(server, sessionId, result.Stall, interactionResponder, interactive, writeLine)
                 is { } stallCode)
@@ -5546,10 +5552,7 @@ public sealed partial class OmniCliRuntime : IDisposable
             foreach (ExplorerTurn.ToolUseTrace trace in result.ToolCalls)
                 writeLine(FormatToolTrace(trace));
             if (!string.IsNullOrEmpty(result.FinalText)) writeLine(ResolveWire(result.FinalText));
-            writeLine(Text(Localized("cli.runtime.turn.summary",
-                ("reason", StopReasonLabel(result.StopReason)),
-                ("steps", result.Steps.ToString()),
-                ("tokens", (result.Usage.Input + result.Usage.Output).ToString()))));
+            writeLine(TurnSummary(server, artifacts, sessionId, result));
             ReportTurnFailureDiagnostic(result, writeLine);
             // ADR-0048 §3: AskUser espera al usuario; EscalateModel continúa el Run con otro modelo.
             if (HandleStallOutcome(server, sessionId, result.Stall, interactionResponder, interactive, writeLine)

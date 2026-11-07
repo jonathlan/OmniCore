@@ -157,7 +157,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         var tools = new SortedDictionary<int, ToolAccumulator>();
         var opaqueFields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         var usage = new TokenUsage(0, 0, 0, 0, 0);
-        var usageReported = false;
+        var usageFields = TokenUsageFields.None;
         var stop = StopReason.EndTurn;
         var sawChunk = false;
         var sawTerminal = false;
@@ -177,10 +177,11 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                 var chunk = DeserializeChunk(payload);
                 if (chunk is null) continue;
                 sawChunk = true;
-                if (chunk.Usage is not null)
+                if (chunk.Usage is { Fields: not TokenUsageFields.None } reported)
                 {
-                    usageReported = true;
-                    usage = new TokenUsage(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0, 0, 0);
+                    usageFields |= reported.Fields;
+                    usage = new TokenUsage(reported.PromptTokens ?? usage.Input,
+                        reported.CompletionTokens ?? usage.Output, 0, 0, 0);
                     yield return new UsageUpdated(usage);
                 }
                 foreach (var choice in chunk.Choices ?? [])
@@ -250,7 +251,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             JsonSerializer.Serialize(opaqueFields, OpenAiJsonContext.Default.DictionaryStringJsonElement));
         var finalResponse = new ModelResponse(content, stop, usage, state,
             new ProviderMetadata(response.Headers.TryGetValues("x-request-id", out var ids) ? ids.FirstOrDefault() ?? "" : "",
-                request.Model.Model.ToString(), null), usageReported ? TokenUsageFields.Input | TokenUsageFields.Output : TokenUsageFields.None);
+                request.Model.Model.ToString(), null), usageFields);
         yield return new ResponseCompleted(finalResponse);
     }
 
@@ -352,6 +353,8 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             Messages = messages,
             Tools = tools.Count == 0 ? null : tools,
             Stream = true,
+            StreamOptions = _descriptor.BillingMode == BillingMode.Local || _descriptor.LocalHost is not null
+                ? new ChatStreamOptions(true) : null,
             MaxTokens = request.Model.MaxOutputTokens,
             ReasoningEffort = llamaCppReasoningOff ? "none" : null,
             ChatTemplateKwargs = llamaCppReasoningOff
@@ -481,8 +484,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             foreach (var tool in message.ToolCalls ?? [])
                 content.Add(new ToolCallBlock(ToolCallId.New(), tool.Id, tool.Function?.Name ?? "", tool.Function?.Arguments ?? "{}"));
         }
-        var usage = response.Usage is null ? new TokenUsage(0, 0, 0, 0, 0) :
-            new TokenUsage(response.Usage.PromptTokens, response.Usage.CompletionTokens, 0, 0, 0);
+        var usage = new TokenUsage(response.Usage?.PromptTokens ?? 0, response.Usage?.CompletionTokens ?? 0, 0, 0, 0);
         var opaque = message?.Extra is null
             ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             : new Dictionary<string, JsonElement>(message.Extra, StringComparer.Ordinal);
@@ -492,7 +494,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             new ProviderState("openai.chat.ProviderOpaque/" + (string.IsNullOrEmpty(model) ? response.Model ?? "" : model),
                 JsonSerializer.Serialize(opaque, OpenAiJsonContext.Default.DictionaryStringJsonElement));
         return new ModelResponse(content, MapFinishReason(choice?.FinishReason), usage, state,
-            new ProviderMetadata(requestId, response.Model ?? model, null), response.Usage is null ? TokenUsageFields.None : TokenUsageFields.Input | TokenUsageFields.Output);
+            new ProviderMetadata(requestId, response.Model ?? model, null), response.Usage?.Fields ?? TokenUsageFields.None);
     }
 
     private static StopReason MapFinishReason(string? finish) => finish switch
@@ -574,10 +576,13 @@ internal sealed class ChatRequestDto
     public List<ChatRequestTool>? Tools { get; set; }
     [JsonPropertyName("tool_choice")] public JsonElement? ToolChoice { get; set; }
     public bool Stream { get; set; }
+    [JsonPropertyName("stream_options")]
+    public ChatStreamOptions? StreamOptions { get; set; }
     [JsonPropertyName("max_tokens")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? MaxTokens { get; set; }
 }
+internal sealed record ChatStreamOptions([property: JsonPropertyName("include_usage")] bool IncludeUsage);
 internal sealed class ChatRequestMessage
 {
     public string Role { get; set; } = "";
@@ -608,7 +613,16 @@ internal sealed class ChatMessageDto
 }
 internal sealed class ChatToolCallDto { public string? Id { get; set; } public ChatFunctionCallDto? Function { get; set; } }
 internal sealed class ChatFunctionCallDto { public string? Name { get; set; } public string? Arguments { get; set; } }
-internal sealed class ChatUsage { [JsonPropertyName("prompt_tokens")] public long PromptTokens { get; set; } [JsonPropertyName("completion_tokens")] public long CompletionTokens { get; set; } }
+internal sealed class ChatUsage
+{
+    [JsonPropertyName("prompt_tokens")] public long? PromptTokens { get; set; }
+    [JsonPropertyName("completion_tokens")] public long? CompletionTokens { get; set; }
+
+    [JsonIgnore]
+    public TokenUsageFields Fields =>
+        (PromptTokens.HasValue ? TokenUsageFields.Input : TokenUsageFields.None)
+        | (CompletionTokens.HasValue ? TokenUsageFields.Output : TokenUsageFields.None);
+}
 internal sealed class ChatChunk
 {
     public List<ChatChunkChoice>? Choices { get; set; }

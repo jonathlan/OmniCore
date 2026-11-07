@@ -718,7 +718,12 @@ public sealed class OmniHost
         var configured = new ProviderDescriptor(descriptor.Id, descriptor.Family, baseUrl, descriptor.Auth,
             descriptor.SupportsJsonSchemaPerRequest, descriptor.SupportsGrammarPerRequest,
             descriptor.SupportsNativeToolCalls)
-        { TrustedCertificatePath = descriptor.TrustedCertificatePath, Profile = descriptor.Profile, BillingMode = descriptor.BillingMode };
+        {
+            TrustedCertificatePath = descriptor.TrustedCertificatePath,
+            Profile = descriptor.Profile,
+            BillingMode = descriptor.BillingMode,
+            LocalHost = descriptor.LocalHost,
+        };
         HttpClient CreateClient() => CreateChatCompletionsClient(baseUrl, descriptor.TrustedCertificatePath, requestTimeout);
         var secrets = new SimpleSecretProvider("OMNI_").With(secretRef, apiKey);
         // StreamAsync owns and disposes each HttpClient returned by the factory; a shared instance

@@ -10,6 +10,39 @@ using OmniCore.Models;
 public sealed class OpenAiChatCompatibleMediaSerializationTests
 {
     [Theory]
+    [InlineData(BillingMode.Local, false, "null", TokenUsageFields.None, 0, 0)]
+    [InlineData(BillingMode.Local, false, "{}", TokenUsageFields.None, 0, 0)]
+    [InlineData(BillingMode.Local, false, "{\"prompt_tokens\":14}", TokenUsageFields.Input, 14, 0)]
+    [InlineData(BillingMode.Local, false, "{\"prompt_tokens\":14,\"completion_tokens\":7}", TokenUsageFields.Input | TokenUsageFields.Output, 14, 7)]
+    [InlineData(BillingMode.Local, false, "{\"prompt_tokens\":0,\"completion_tokens\":0}", TokenUsageFields.Input | TokenUsageFields.Output, 0, 0)]
+    [InlineData(BillingMode.Unknown, true, "{\"prompt_tokens\":14,\"completion_tokens\":7}", TokenUsageFields.Input | TokenUsageFields.Output, 14, 7)]
+    [InlineData(BillingMode.Unknown, false, "null", TokenUsageFields.None, 0, 0)]
+    public async System.Threading.Tasks.Task Local_stream_requests_usage_and_preserves_reported_fields(
+        BillingMode billing, bool localHost, string usageJson, TokenUsageFields fields, long input, long output)
+    {
+        const string answer = "data: {\"choices\":[{\"delta\":{\"content\":\"visible\"},\"finish_reason\":\"stop\"}]}\n\n";
+        using var handler = new CaptureHandler(answer + "data: {\"choices\":[],\"usage\":" + usageJson + "}");
+        var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
+            "https://fixture.invalid/v1", AuthConfig.None(), false, false, true)
+        { BillingMode = billing, LocalHost = localHost ? new LocalHostConfig(LocalHostMode.Attach) : null };
+        var provider = new OpenAiChatCompatibleProvider(descriptor, new NoSecrets(), () => new HttpClient(handler, false));
+        var request = new ModelRequest(new ModelSelection(new ModelIdValue("fixture-model"), 4096, ToolMode.Direct, null),
+            [new ModelMessage(MessageRole.User, [new TextBlock("Question")])], null, [], ToolChoice.None(), null, null, null, null);
+        var events = new List<ModelStreamEvent>();
+        await foreach (var item in provider.StreamAsync(request, TestContext.Current.CancellationToken)) events.Add(item);
+        using var body = JsonDocument.Parse(handler.Body!);
+        if (billing == BillingMode.Local || localHost)
+            Assert.True(body.RootElement.GetProperty("stream_options").GetProperty("include_usage").GetBoolean());
+        else
+            Assert.False(body.RootElement.TryGetProperty("stream_options", out _));
+
+        var result = Assert.Single(events.OfType<ResponseCompleted>()).Response;
+        Assert.Equal("visible", Assert.Single(result.Content.OfType<TextBlock>()).Text);
+        Assert.Equal(fields, result.ReportedUsageFields);
+        Assert.Equal(new TokenUsage(input, output, 0, 0, 0), result.Usage);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async System.Threading.Tasks.Task Chat_stream_preserves_terminal_answer_at_eof_and_rejects_incomplete_streams(bool complete)
