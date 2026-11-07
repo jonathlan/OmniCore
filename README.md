@@ -87,6 +87,15 @@ tokens. La administración del catálogo permite decidir cuáles aparecen al ele
 Puedes usar modelos locales, tu suscripción ChatGPT o proveedores API configurados.
 Disponibilidad, capacidades y cuotas dependen de cada ruta y cuenta.
 
+Para un motor local, abre **F4 → Motores locales**, añade su dirección y guarda.
+OmniCore consulta automáticamente la API de modelos del servidor y los incorpora
+a **F3**, con sus IDs reales y el contexto que anuncian. No necesitas escribir
+rutas GGUF ni editar archivos de configuración. Funciona con servidores que
+ofrecen la API compatible con OpenAI, incluido llama.cpp/OmniLlama.
+Si el motor está apagado, la configuración queda guardada: enciéndelo y pulsa
+**Descubrir modelos**. Un motor administrado se descubre después de su inicio
+explícito. La consulta no genera texto, no cambia tu modelo seleccionado ni sus permisos.
+
 - `F1` o `/modo`: elegir PLAN, ACT u ORQ.
 - `Ctrl+F1` o `/permiso`: revisar el nivel de ejecución permitido.
 - `/esfuerzo` (`/effort`): elegir un esfuerzo compatible con el modelo.

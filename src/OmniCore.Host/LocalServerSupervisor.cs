@@ -162,6 +162,17 @@ public sealed class LocalServerSupervisor : IDisposable
         lock (entry.StateGate) return !entry.Transitioning && entry.Host.IsManagedRunning();
     }
 
+    /// <summary>Reads the effective endpoint of a live owned engine; never starts, restarts, or probes it.</summary>
+    public LocalServerEndpoint? ReadManagedEndpoint(string providerId)
+    {
+        ManagedEntry? entry;
+        lock (_gate) _managed.TryGetValue(providerId, out entry);
+        if (entry is null) return null;
+        lock (entry.StateGate)
+            return entry.Transitioning || !entry.Host.IsManagedRunning() ? null
+                : new LocalServerEndpoint(EndpointOf(entry.Host), entry.Host.GeneratedApiKeyValue(), true);
+    }
+
     public bool IsManagedStarting(string? providerId)
     {
         if (providerId is null) return false;

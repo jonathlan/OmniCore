@@ -345,6 +345,7 @@ public sealed partial class TuiWiringTests
         fx.Wait(() => supervisor.ReadCalls > 0 && fx.App.Overlay is not null,
             "TUI estable tras completar operación tardía");
         fx.Wait(() => fx.App.LocalEngineRuntimeTask?.IsCompleted == true, "resultado host ya completó");
+        fx.Wait(() => fx.App.LocalEngineDiscoveryTask?.IsCompleted == true, "inicio confirmado descubre aunque el panel se haya cerrado");
         Thread.Sleep(600); // Allow the UI poll to process the queued late completion.
         Assert.DoesNotContain(Descendants(fx.App.Overlay!).OfType<Label>(), view =>
             view.Id == "local-engine-runtime-result");

@@ -2758,7 +2758,7 @@ public sealed partial class TuiApp
         frame.Add(searchLabel, search, searchHint, columns, list, details, units, position, close, manage, refresh); ApplyTheme(frame); _overlay = frame; _window.Add(frame);
         if (models.Length > 0) list.SetFocus(); else search.SetFocus();
         var refreshSubscription = refreshCatalog && _policies.SupportsDiscovery;
-        if (refreshSubscription && routerProviders.Length > 0)
+        if (refreshSubscription)
         {
             try { refreshSubscription = (_account ??= _accountOverride ?? new TuiAccountHost()).Status().LoggedIn; }
             catch (Exception) { refreshSubscription = false; }

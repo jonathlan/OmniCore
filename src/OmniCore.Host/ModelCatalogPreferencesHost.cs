@@ -454,7 +454,7 @@ public sealed class ModelCatalogPreferencesHost : IModelCatalogPreferencesHost, 
         static bool ValidId(string value) => value.Length is > 0 and <= 200
             && value == value.Trim() && value.All(character => char.IsAsciiLetterOrDigit(character)
                 || character is '-' or '_' or '.' or '/' or ':');
-        if (!ValidId(draft.Id)) throw Error("invalidId");
+        if (!LocalModelIdentity.Valid(draft.Id)) throw Error("invalidId");
         if (!ValidId(draft.ProviderId)) throw Error("invalidProvider");
         if (draft.Context is < 1 or > int.MaxValue || draft.RecommendedUsableContext is < 1 or > int.MaxValue
             || draft.MaxOutput is < 1 or > int.MaxValue || draft.RecommendedUsableContext > draft.Context
@@ -479,7 +479,7 @@ public sealed class ModelCatalogPreferencesHost : IModelCatalogPreferencesHost, 
             && (imageCost <= 0m || imageCost > 1_000_000m)) throw Error("invalidImageCost");
         if (draft.OutputModalities?.Contains("image", StringComparer.Ordinal) == true
             && draft.ImageGenerationMaxCostUsd is null) throw Error("imageCostRequired");
-        if (draft.ExistingId is not null && !ValidId(draft.ExistingId)) throw Error("modelNotFound");
+        if (draft.ExistingId is not null && !LocalModelIdentity.Valid(draft.ExistingId)) throw Error("modelNotFound");
     }
 
     private void Publish(string updated, (string? Providers, string? Models, string? Settings, string? ProjectSettings, string? WorkspaceSettings) files,

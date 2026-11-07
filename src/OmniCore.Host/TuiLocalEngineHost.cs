@@ -41,17 +41,20 @@ public sealed class LocalEngineConfigurationException(string code) : InvalidOper
 }
 
 /// <summary>User-owned local provider editor. Unrelated providers, auth references and models are preserved.</summary>
-public sealed class TuiLocalEngineHost : ITuiLocalEngineHost
+public sealed partial class TuiLocalEngineHost : ITuiLocalEngineHost, ILocalEngineModelDiscoveryHost
 {
     private readonly string _directory;
     private readonly ITuiLocalEngineSupervisor? _supervisor;
+    private readonly Func<HttpClient>? _discoveryHttp;
     private string ProvidersFile => Path.Combine(_directory, "providers.yaml");
     private string ModelsFile => Path.Combine(_directory, "models.yaml");
 
-    public TuiLocalEngineHost(string? configDirectory = null, ITuiLocalEngineSupervisor? supervisor = null)
+    public TuiLocalEngineHost(string? configDirectory = null, ITuiLocalEngineSupervisor? supervisor = null,
+        Func<HttpClient>? discoveryHttp = null)
     {
         _directory = Path.GetFullPath(configDirectory ?? OmniHost.CreatePlatformPaths().ConfigDirectory);
         _supervisor = supervisor;
+        _discoveryHttp = discoveryHttp;
     }
 
     public LocalEnginePreferencesSnapshot Read(CancellationToken cancellationToken)

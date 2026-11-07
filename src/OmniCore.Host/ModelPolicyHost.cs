@@ -116,6 +116,7 @@ public sealed class ModelPolicyHost : IDisposable
     private string? _configDirectory;
     private string? _discoveredProvider;
     private IReadOnlyList<AvailableChatGptModel>? _availableChatGptModels;
+    private readonly Dictionary<string, string> _localDisplayNames = new(StringComparer.Ordinal);
     public bool SupportsDiscovery => _configDirectory is not null;
     public bool IsSubscriptionModel(string id) => _configDirectory is not null
         && OmniHost.LoadModelRegistry(_configDirectory) is { } registry
@@ -171,7 +172,14 @@ public sealed class ModelPolicyHost : IDisposable
 
     public void ReloadModels()
     {
-        if (_configDirectory is not null) _models = OmniHost.LoadModelRegistry(_configDirectory).Models().Select(ToDescriptor).ToArray();
+        if (_configDirectory is not null)
+        {
+            var registry = OmniHost.LoadModelRegistry(_configDirectory);
+            _models = registry.Models().Select(ToDescriptor).ToArray();
+            _localDisplayNames.Clear();
+            foreach (var model in registry.Models().Where(model => registry.Provider(model.ProviderId)?.LocalHost is not null))
+                _localDisplayNames[model.Id] = LocalModelIdentity.DisplayName(model.Id);
+        }
         if (_availableChatGptModels is not null)
         {
             var known = _models;
@@ -180,7 +188,8 @@ public sealed class ModelPolicyHost : IDisposable
         }
     }
 
-    public string? DisplayName(string modelId) => _availableChatGptModels?.FirstOrDefault(m => m.Id == modelId)?.DisplayName;
+    public string? DisplayName(string modelId) => _availableChatGptModels?.FirstOrDefault(m => m.Id == modelId)?.DisplayName
+        ?? _localDisplayNames.GetValueOrDefault(modelId);
 
     /// <summary>Apply only a successfully fetched account catalog; never infer withdrawal from errors.</summary>
     public string? ApplyChatGptCatalog(IReadOnlyList<AvailableChatGptModel> catalog, string workspaceId, CancellationToken ct)

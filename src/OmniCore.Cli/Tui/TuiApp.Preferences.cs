@@ -27,6 +27,8 @@ public sealed partial class TuiApp
     private string? _localEngineNotice;
     private string? _localEngineSelectedProviderId;
     private Task<LocalEngineRuntimeActionResult>? _localEngineRuntimeTask;
+    private Task<LocalEngineModelDiscoveryResult>? _localEngineDiscoveryTask;
+    internal Task? LocalEngineDiscoveryTask => _localEngineDiscoveryTask;
     private Label? _preferencesNotice;
     private Button? _preferencesReload;
 
@@ -773,17 +775,23 @@ public sealed partial class TuiApp
             Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_runtime_check") };
         var delete = new Button { Id = "local-engine-delete", X = Pos.Right(runtime) + 1, Y = actionY + 2,
             Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_delete") };
-        var notice = new Label { Id = "local-engine-notice", X = MenuIndent.Level1, Y = actionY + 5,
+        var discover = new Button { Id = "local-engine-discover", X = MenuIndent.Level1, Y = actionY + 4,
+            Width = Dim.Percent(47), Height = 2, TextAlignment = Alignment.Start, Text = Pref("local_discover") };
+        var notice = new Label { Id = "local-engine-notice", X = MenuIndent.Level1, Y = actionY + 6,
             Width = Dim.Fill(4), Height = 3, Text = _localEngineNotice ?? LocalEngineDiagnostics(snapshot) };
         void SyncSelection()
         {
             var row = SelectedRow();
             var runtimeState = ReadLocalEngineRuntimeStatus(row);
+            var discovering = _localEngineDiscoveryTask is { IsCompleted: false };
             _localEngineSelectedProviderId = row?.ProviderId;
-            edit.Enabled = row?.CanEdit == true;
-            delete.Enabled = row?.CanDelete == true;
+            add.Enabled = !discovering;
+            edit.Enabled = row?.CanEdit == true && !discovering;
+            discover.Enabled = row is not null && _localEngines is ILocalEngineModelDiscoveryHost
+                && _localEngineDiscoveryTask is not { IsCompleted: false };
+            delete.Enabled = row?.CanDelete == true && !discovering;
             runtime.Enabled = _localEngineSupervisor is not null && row is not null
-                && runtimeState is not null && !runtimeState.Transitioning;
+                && runtimeState is not null && !runtimeState.Transitioning && !discovering;
             runtime.Text = row?.Mode == "attach" ? Pref("local_runtime_check")
                 : runtimeState is { ManagedOwned: true, Running: true } ? Pref("local_runtime_stop") : Pref("local_runtime_start");
             status.Text = LocalEngineStatusText(row, runtimeState);
@@ -815,11 +823,15 @@ public sealed partial class TuiApp
             if (SelectedRow() is { CanDelete: true } row)
                 ShowLocalEngineDeleteConfirmation(row, snapshot);
         };
+        discover.Accepted += (_, _) =>
+        {
+            if (SelectedRow() is { } row) BeginLocalModelDiscovery(row.ProviderId, snapshot);
+        };
         if (rows.Length == 0)
             contentPanel.Add(new Label { Id = "local-engine-empty", X = MenuIndent.Level1, Y = y,
                 Width = Dim.Fill(4), Height = 1, Text = Pref("local_empty") });
-        contentPanel.Add(list, status, notice, add, edit, runtime, delete);
-        ConfigurePreferenceScroll(contentPanel, actionY + 8);
+        contentPanel.Add(list, status, notice, add, edit, runtime, delete, discover);
+        ConfigurePreferenceScroll(contentPanel, actionY + 10);
         SyncSelection();
     }
 
@@ -908,7 +920,7 @@ public sealed partial class TuiApp
         var message = new Label { Id = "local-engine-runtime-question", X = 2, Y = 2,
             Width = Dim.Fill(4), Height = 3, Text = Pref(messageKey) };
         var status = new Label { Id = "local-engine-runtime-result", X = 2, Y = 6,
-            Width = Dim.Fill(4), Height = 2, Text = "" };
+            Width = Dim.Fill(4), Height = 3, Text = "" };
         var cancel = new Button { Id = "local-engine-runtime-cancel", X = 2, Y = Pos.AnchorEnd(2), Text = Pref("local_cancel") };
         cancel.Accepted += (_, _) => { CloseOverlay(); ShowPreferences("local_engines", categoryPage: true); };
         var confirm = new Button { Id = "local-engine-runtime-confirm", X = Pos.AnchorEnd(14), Y = Pos.AnchorEnd(2), Text = Pref("local_confirm") };
@@ -926,13 +938,21 @@ public sealed partial class TuiApp
             _localEngineRuntimeTask = operation;
             _ = operation.ContinueWith(completed => _uiActions.Enqueue(() =>
             {
-                if (!ReferenceEquals(_overlay, frame)) return;
+                if (!ReferenceEquals(_overlay, frame))
+                {
+                    if (!stop && completed.IsCompletedSuccessfully && completed.Result.Success)
+                        BeginLocalModelDiscovery(row.ProviderId, _localEngines.Read(CancellationToken.None), frame);
+                    return;
+                }
                 confirm.Enabled = true;
                 if (completed.IsCompletedSuccessfully)
                     status.Text = LocalEngineRuntimeTextFromWire(completed.Result.StateKey);
                 else status.Text = LocalEngineRuntimeText("actionFailed");
                 if (completed.IsCompletedSuccessfully && completed.Result.Success)
+                {
                     _localEngineNotice = LocalEngineRuntimeTextFromWire(completed.Result.StateKey);
+                    if (!stop) BeginLocalModelDiscovery(row.ProviderId, _localEngines.Read(CancellationToken.None));
+                }
             }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         };
         frame.Add(message, status, cancel, confirm);
@@ -1007,11 +1027,15 @@ public sealed partial class TuiApp
                 mode == "managed" ? executable.Text.ToString() : null,
                 DecodeLocalArguments(args.Text.ToString()),
                 directory.Text.ToString(), timeoutValue);
+            if (mode == "attach" && Uri.TryCreate(draft.BaseUrl.Trim(), UriKind.Absolute, out var server)
+                && server.AbsolutePath.Trim('/') is "")
+                draft = draft with { BaseUrl = draft.BaseUrl.Trim().TrimEnd('/') + "/v1" };
             try
             {
                 _localEngineSnapshot = _localEngines.Save(draft, snapshot.Revision, CancellationToken.None);
                 _localEngineNotice = Pref("local_saved");
                 CloseOverlay(); ShowPreferences("local_engines", categoryPage: true);
+                BeginLocalModelDiscovery(draft.ProviderId, _localEngineSnapshot);
             }
             catch (LocalEngineConfigurationException error)
             {
@@ -1028,6 +1052,35 @@ public sealed partial class TuiApp
     }
 
     private string LocalEngineMode(string mode) => mode == "managed" ? Pref("local_managed") : Pref("local_attach");
+
+    private void BeginLocalModelDiscovery(string providerId, LocalEnginePreferencesSnapshot snapshot, FrameView? sourceFrame = null)
+    {
+        if (_localEngines is not ILocalEngineModelDiscoveryHost catalog) return;
+        var frame = sourceFrame ?? _overlay;
+        var current = ReferenceEquals(_overlay, frame);
+        var runtimeStatus = current ? FindPreferenceView(frame, "local-engine-runtime-result") as Label : null;
+        var previousStatus = runtimeStatus?.Text.ToString();
+        _localEngineNotice = Pref("local_discovering");
+        if (current && FindPreferenceView(frame, "local-engine-notice") is Label notice) notice.Text = _localEngineNotice;
+        var operation = catalog.DiscoverModelsAsync(providerId, snapshot.Revision, CancellationToken.None);
+        _localEngineDiscoveryTask = operation;
+        foreach (var id in new[] { "local-engine-add", "local-engine-edit", "local-engine-delete", "local-engine-runtime", "local-engine-discover" })
+            if (current && FindPreferenceView(frame, id) is Button button) button.Enabled = false;
+        _ = operation.ContinueWith(completed => _uiActions.Enqueue(() =>
+        {
+            if (!ReferenceEquals(_localEngineDiscoveryTask, operation)) return;
+            _localEngineNotice = completed.IsCompletedSuccessfully
+                ? Pref("local_" + completed.Result.MessageKey).Replace("{count}", completed.Result.ModelCount.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                : Pref("local_discoveryOffline");
+            if (completed.IsCompletedSuccessfully) _localEngineSnapshot = completed.Result.Snapshot;
+            try { _policies.ReloadModels(); }
+            catch (Exception) { _localEngineNotice = Pref("local_discoveryChanged"); }
+            if (!ReferenceEquals(_overlay, frame)) return;
+            if (FindPreferenceView(frame, "local-engine-runtime-result") is Label status)
+                status.Text = previousStatus + "\n" + _localEngineNotice;
+            else { CloseOverlay(); ShowPreferences("local_engines", categoryPage: true); }
+        }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
 
     internal static string EncodeLocalArguments(IReadOnlyList<string> arguments) => string.Join("\n",
         arguments.Select(argument => argument.Length == 0 ? "\"\""

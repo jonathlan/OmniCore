@@ -63,6 +63,7 @@ public sealed class LocalServerTests
                 Assert.True(supervisor.IsManagedOwned("local"));
                 Assert.True(supervisor.IsManagedStarting("local"));
                 Assert.False(supervisor.IsManagedRunning("local"));
+                Assert.Null(supervisor.ReadManagedEndpoint("local"));
             }, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
         }
         finally { release.Set(); }
@@ -73,6 +74,24 @@ public sealed class LocalServerTests
         Assert.Equal(0, process.AliveCount);
         Assert.Throws<ObjectDisposedException>(() => supervisor.Ensure(provider, provider.BaseUrl));
         Assert.Single(process.Launches);
+    }
+
+    [Fact]
+    public void Reading_an_owned_catalog_endpoint_never_starts_or_restarts_a_managed_process()
+    {
+        var process = new FakeProcessRuntime();
+        using var supervisor = new LocalServerSupervisor(() => process, ready: (_, _) => true);
+        var provider = Provider(Managed(), LocalHostConfig.ManagedLogicalBaseUrl);
+        Assert.Null(supervisor.ReadManagedEndpoint("local"));
+        Assert.Empty(process.Launches);
+        var endpoint = supervisor.Ensure(provider, provider.BaseUrl);
+        Assert.Equal(endpoint, supervisor.ReadManagedEndpoint("local"));
+        Assert.Single(process.Launches);
+        process.Crash(process.LastPid);
+        Assert.Null(supervisor.ReadManagedEndpoint("local"));
+        Assert.Single(process.Launches);
+        supervisor.Stop("local");
+        Assert.Null(supervisor.ReadManagedEndpoint("local"));
     }
 
     [Fact]

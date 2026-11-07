@@ -300,7 +300,7 @@ public sealed class ModelCatalogPreferencesHostTests
         var initial = fixture.Host.Read(CancellationToken.None);
         var original = File.ReadAllText(fixture.Models);
         var exception = Assert.Throws<ModelCatalogConfigurationException>(() => fixture.Host.Save(
-            new("bad id", "fixture", 8192, 8192, 2048, null, []), initial.Revision, CancellationToken.None));
+            new("bad\nid", "fixture", 8192, 8192, 2048, null, []), initial.Revision, CancellationToken.None));
         Assert.Equal("modelCatalog.error.invalidId", exception.MessageKey);
         Assert.Equal(original, File.ReadAllText(fixture.Models));
     }

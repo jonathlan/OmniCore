@@ -21,6 +21,15 @@ public static class PreferencesUiResources
     }
 
     private static readonly Dictionary<string, string> _es = Resource(
+        "local_discover", "Descubrir modelos", "local_discovering", "Configuración guardada. Consultando los modelos del motor…",
+        "local_discoverySuccess", "{count} modelos detectados y disponibles en F3. Elige allí el modelo que quieras usar.",
+        "local_discoveryEmpty", "El motor respondió, pero no anuncia modelos cargados. Carga uno y pulsa Descubrir modelos.",
+        "local_discoveryOffline", "Configuración guardada. No se pudo consultar la API de modelos; comprueba que el motor esté listo y vuelve a descubrir.",
+        "local_discoveryInvalid", "Configuración guardada. La dirección no devolvió un catálogo de modelos compatible.",
+        "local_discoveryChanged", "La configuración cambió durante la consulta. Vuelve a descubrir para usar la dirección actual.",
+        "local_discoveryNotReady", "Configuración guardada. Inicia el motor administrado para descubrir sus modelos automáticamente.",
+        "local_discoveryUnsupported", "Este motor requiere una API de modelos compatible y autenticación admitida para descubrir modelos.",
+        "local_discoveryConflict", "Un ID anunciado ya pertenece a otro proveedor. No se modificó el catálogo existente.",
         "mcp_open", "Servidores MCP…",
         "local_engines_heading", "Motores configurados", "local_columns", "ID del proveedor · Modo · Destino", "local_modes_help", "Servidor existente: tú lo arrancas y OmniCore solo se conecta al dirección. Administrado: OmniCore lo inicia y detiene con el ejecutable y los argumentos indicados.",
         "section_language", "Idioma", "section_interface", "Interfaz", "section_diagnostics", "Diagnóstico", "section_context", "Contexto y memoria", "section_tools", "Herramientas", "section_permissions", "Permisos", "section_models", "Modelos", "section_extensions", "Extensiones y habilidades",
@@ -97,6 +106,15 @@ public static class PreferencesUiResources
         "kind", "Tipo", "source", "Origen", "importance", "Importancia", "confidence", "Confianza", "created", "Creado", "tags", "Etiquetas");
 
     private static readonly Dictionary<string, string> _en = Resource(
+        "local_discover", "Discover models", "local_discovering", "Configuration saved. Querying the engine’s models…",
+        "local_discoverySuccess", "{count} models detected and available in F3. Choose the model you want to use there.",
+        "local_discoveryEmpty", "The engine responded but reports no loaded models. Load one and select Discover models.",
+        "local_discoveryOffline", "Configuration saved. Could not query the models API; check that the engine is ready and discover again.",
+        "local_discoveryInvalid", "Configuration saved. The address did not return a compatible model catalog.",
+        "local_discoveryChanged", "Configuration changed during discovery. Discover again to use the current address.",
+        "local_discoveryNotReady", "Configuration saved. Start the managed engine to discover its models automatically.",
+        "local_discoveryUnsupported", "This engine needs a compatible models API and supported authentication for discovery.",
+        "local_discoveryConflict", "A reported ID already belongs to another provider. The existing catalog was preserved.",
         "mcp_open", "MCP servers…",
         "local_engines_heading", "Configured engines", "local_columns", "Provider ID · Mode · Target", "local_modes_help", "Existing server: you start it and OmniCore only connects to the endpoint. Managed: OmniCore starts and stops it with the given executable and arguments.",
         "section_language", "Language", "section_interface", "Interface", "section_diagnostics", "Diagnostics", "section_context", "Context and memory", "section_tools", "Tools", "section_permissions", "Permissions", "section_models", "Models", "section_extensions", "Extensions and skills",
@@ -173,6 +191,15 @@ public static class PreferencesUiResources
         "kind", "Kind", "source", "Source", "importance", "Importance", "confidence", "Confidence", "created", "Created", "tags", "Tags");
 
     private static readonly Dictionary<string, string> _fr = Resource(
+        "local_discover", "Découvrir les modèles", "local_discovering", "Configuration enregistrée. Consultation des modèles du moteur…",
+        "local_discoverySuccess", "{count} modèles détectés et disponibles dans F3. Choisissez le modèle à utiliser.",
+        "local_discoveryEmpty", "Le moteur répond mais ne signale aucun modèle chargé. Chargez-en un, puis découvrez les modèles.",
+        "local_discoveryOffline", "Configuration enregistrée. Impossible de consulter l’API des modèles ; vérifiez le moteur et réessayez.",
+        "local_discoveryInvalid", "Configuration enregistrée. L’adresse n’a pas renvoyé de catalogue compatible.",
+        "local_discoveryChanged", "La configuration a changé pendant la requête. Relancez la découverte avec l’adresse actuelle.",
+        "local_discoveryNotReady", "Configuration enregistrée. Démarrez le moteur géré pour découvrir ses modèles automatiquement.",
+        "local_discoveryUnsupported", "La découverte nécessite une API de modèles compatible et une authentification prise en charge.",
+        "local_discoveryConflict", "Un ID annoncé appartient déjà à un autre fournisseur. Le catalogue existant est conservé.",
         "mcp_open", "Serveurs MCP…",
         "local_engines_heading", "Moteurs configurés", "local_columns", "ID du provider · Mode · Cible", "local_modes_help", "Serveur existant : vous le lancez et OmniCore se connecte seulement à l’endpoint. Géré : OmniCore le démarre et l’arrête avec l’exécutable et les arguments indiqués.",
         "section_language", "Langue", "section_interface", "Interface", "section_diagnostics", "Diagnostic", "section_context", "Contexte et mémoire", "section_tools", "Outils", "section_permissions", "Autorisations", "section_models", "Modèles", "section_extensions", "Extensions et skills",
@@ -249,6 +276,15 @@ public static class PreferencesUiResources
         "kind", "Type", "source", "Source", "importance", "Importance", "confidence", "Confiance", "created", "Créé", "tags", "Étiquettes");
 
     private static readonly Dictionary<string, string> _it = Resource(
+        "local_discover", "Scopri modelli", "local_discovering", "Configurazione salvata. Ricerca dei modelli del motore…",
+        "local_discoverySuccess", "{count} modelli rilevati e disponibili in F3. Scegli il modello da usare.",
+        "local_discoveryEmpty", "Il motore risponde ma non segnala modelli caricati. Caricane uno e scegli Scopri modelli.",
+        "local_discoveryOffline", "Configurazione salvata. Impossibile consultare l’API dei modelli; verifica il motore e riprova.",
+        "local_discoveryInvalid", "Configurazione salvata. L’indirizzo non ha restituito un catalogo compatibile.",
+        "local_discoveryChanged", "La configurazione è cambiata durante la richiesta. Ripeti la ricerca con l’indirizzo attuale.",
+        "local_discoveryNotReady", "Configurazione salvata. Avvia il motore gestito per scoprirne automaticamente i modelli.",
+        "local_discoveryUnsupported", "La ricerca richiede un’API dei modelli compatibile e un’autenticazione supportata.",
+        "local_discoveryConflict", "Un ID annunciato appartiene già a un altro fornitore. Il catalogo esistente è stato conservato.",
         "mcp_open", "Server MCP…",
         "local_engines_heading", "Motori configurati", "local_columns", "ID provider · Modalità · Destinazione", "local_modes_help", "Server esistente: lo avvii tu e OmniCore si collega solo all’endpoint. Gestito: OmniCore lo avvia e lo arresta con l’eseguibile e gli argomenti indicati.",
         "section_language", "Lingua", "section_interface", "Interfaccia", "section_diagnostics", "Diagnostica", "section_context", "Contesto e memoria", "section_tools", "Strumenti", "section_permissions", "Autorizzazioni", "section_models", "Modelli", "section_extensions", "Estensioni e skills",

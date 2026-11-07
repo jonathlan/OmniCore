@@ -23,8 +23,15 @@ public sealed record LocalEngineRuntimeActionResult(bool Success, string StateKe
 
 /// <summary>Small UI-safe adapter over the supervisor owned by OmniCliRuntime.</summary>
 public sealed class TuiLocalEngineSupervisor(LocalServerSupervisor supervisor, IPlatformPaths paths)
-    : ITuiLocalEngineSupervisor
+    : ITuiLocalEngineSupervisor, ILocalEngineCatalogEndpointSource
 {
+    public LocalServerEndpoint? CatalogEndpoint(string providerId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var current = OmniHost.LoadUserConfiguration(paths).Registry.Provider(providerId);
+        return current?.LocalHost?.Mode == LocalHostMode.Managed ? supervisor.ReadManagedEndpoint(providerId) : null;
+    }
+
     public IReadOnlyList<LocalEngineRuntimeStatus> Read(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
