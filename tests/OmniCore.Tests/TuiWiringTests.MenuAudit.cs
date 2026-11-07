@@ -116,23 +116,28 @@ public sealed partial class TuiWiringTests
         host.SaveCommandAliases(host.Read().Revision, new Dictionary<string, string> { ["cuentasrapidas"] = "openrouter", ["misopciones"] = "preferences" });
         fx.StartTui(policyPreferences: host, localeSelection: new(locale, LocaleSelectionSource.CommandLine));
         Type(fx, "/");
-        fx.Wait(() => fx.App.MainWindow!.SubViews.Any(view => view.Id == "omni-command-helper"), "completion visible");
-        var names = fx.App.MainWindow!.SubViews.Single(view => view.Id == "omni-command-helper").SubViews.OfType<ListView>().Single()
-            .Source!.ToList().Cast<object>().Select(row => row.ToString()!.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0][1..]).ToArray();
+        string[]? names = null;
+        fx.Wait(() => (names = fx.Read(() =>
+        {
+            var helper = fx.App.MainWindow!.SubViews.SingleOrDefault(view => view.Id == "omni-command-helper");
+            var rows = helper?.SubViews.OfType<ListView>().Single().Source?.ToList();
+            return rows?.Cast<object>().Select(row => row.ToString()!.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0][1..]).ToArray();
+        })) is not null, "completion visible");
+        Assert.NotNull(names);
         Assert.DoesNotContain(names, name => TuiMenuCommands.IsMenuOwned(name));
         Assert.DoesNotContain("cuentasrapidas", names); Assert.DoesNotContain("misopciones", names);
         fx.Invoke(() => fx.App.Composer!.Text = "");
         KeyWithEffect(fx, KeyCode.F4, () => fx.App.Overlay is not null, "preferences open");
         ChoosePreferenceCategory(fx, "extensions_skills", locale);
         ClickId(fx, "preferences-commands-open");
-        var catalog = Descendants(fx.App.Overlay!).OfType<ListView>().Single(view => view.Id == "commands-list").Source!.ToList()
-            .Cast<object>().Select(row => row.ToString()!.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0][1..]).ToArray();
+        var catalog = fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single(view => view.Id == "commands-list")
+            .Source!.ToList().Cast<object>().Select(row => row.ToString()!.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0][1..]).ToArray());
         Assert.DoesNotContain(catalog, name => TuiMenuCommands.IsMenuOwned(name));
         KeyWithEffect(fx, KeyCode.Esc, () => fx.App.Overlay?.Id == "preferences-center", "return to extensions");
-        if (fx.App.MainWindow!.Frame.Width < 100) ClickId(fx, "preferences-back");
+        if (fx.Read(() => fx.App.MainWindow!.Frame.Width) < 100) ClickId(fx, "preferences-back");
         ChoosePreferenceCategory(fx, "diagnostics_data", locale);
         ClickId(fx, "preferences-help-open");
-        var help = OverlayText(fx.App.Overlay!);
+        var help = fx.Read(() => OverlayText(fx.App.Overlay!));
         foreach (var name in TuiMenuCommands.Categories.Keys)
         {
             Assert.DoesNotContain("/" + name + " —", help);
