@@ -573,6 +573,13 @@ Configure proveedores y modelos en el directorio **del usuario**, tomando [docs/
 
 En la TUI, **F4 → Cuentas y conexiones → Anthropic…** abre directamente su formulario para guardar la clave, probar la conexión, descubrir modelos y desconectar. El Host conserva la credencial en su almacén protegido; si se guarda sin verificar, el estado se muestra como desconocido. Las fechas anteriores se identifican como históricas cuando la conexión actual no está validada. El acceso a la cuenta ChatGPT también se administra desde el menú de configuración.
 
+**Descubrir modelos** también actualiza los controles de razonamiento que anuncia
+Anthropic para esa conexión. En **F3** o `/esfuerzo`, un modelo puede ofrecer
+niveles de esfuerzo, pensamiento adaptativo o presupuesto de tokens, según el
+catálogo. Las declaraciones manuales de `reasoning` prevalecen. Una cuenta de
+Claude por OAuth conserva su ruta de suscripción y usa las capacidades declaradas
+para esa ruta; no toma las de una conexión con API key.
+
 Los enlaces web de las respuestas se abren en el navegador predeterminado con un clic.
 También puede enfocar la conversación, situar el cursor sobre el enlace con las flechas
 y pulsar **Enter**. Arrastrar para seleccionar texto conserva la copia sin abrir enlaces.

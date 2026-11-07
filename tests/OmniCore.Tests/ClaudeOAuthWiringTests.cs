@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using OmniCore.Abstractions;
 using OmniCore.Domain;
 using OmniCore.Host;
@@ -105,7 +106,8 @@ public sealed class ClaudeOAuthWiringTests : IDisposable
             claudeOAuth: session.Auth, oauthIdentity: session.Identity,
             anthropicHttpFactory: () => new HttpClient(handler, disposeHandler: false));
 
-        await foreach (var _ in connected.StreamAsync(BuildRequest(), TestContext.Current.CancellationToken))
+        await foreach (var _ in connected.StreamAsync(BuildRequest(new ReasoningRequest("high", null)),
+            TestContext.Current.CancellationToken))
         {
         }
 
@@ -117,6 +119,8 @@ public sealed class ClaudeOAuthWiringTests : IDisposable
         // El user-agent es el que declaro el usuario, con la version del producto rellenada.
         Assert.StartsWith("agent/", sent["User-Agent"], StringComparison.Ordinal);
         Assert.False(sent.ContainsKey("x-api-key"), "el camino de cuenta nunca manda API key");
+        using var body = JsonDocument.Parse(Assert.Single(handler.Bodies));
+        Assert.Equal("high", body.RootElement.GetProperty("output_config").GetProperty("effort").GetString());
     }
 
     [Fact]
@@ -228,21 +232,22 @@ public sealed class ClaudeOAuthWiringTests : IDisposable
         return string.Join("\n", lines.Select(l => l.Length >= indent ? l[indent..] : l.TrimStart())) + "\n";
     }
 
-    private static ModelRequest BuildRequest() =>
+    private static ModelRequest BuildRequest(ReasoningRequest? reasoning = null) =>
         new(new ModelSelection(new ModelIdValue("claude-sonnet"), 4096, ToolMode.Direct, null, maxOutputTokens: 512),
             [new ModelMessage(MessageRole.User, [new TextBlock("hola")])], null, [],
-            ToolChoice.Auto(), null, null, null, null);
+            ToolChoice.Auto(), null, reasoning, null, null);
 
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public List<Dictionary<string, string>> Requests { get; } = [];
+        public List<string> Bodies { get; } = [];
 
         protected override async System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request.Headers
                 .ToDictionary(h => h.Key, h => string.Join(" ", h.Value), StringComparer.OrdinalIgnoreCase));
-            _ = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new System.Net.Http.StringContent(MinimalStream, System.Text.Encoding.UTF8, "text/event-stream"),

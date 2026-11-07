@@ -227,21 +227,23 @@ public sealed class AnthropicMessagesProvider : IModelProvider, IReportsRateLimi
         return request;
     }
 
+    public static bool IsEffortLevel(string kind) => kind is "low" or "medium" or "high" or "xhigh" or "max";
+
+    public static bool CanSendReasoning(ReasoningRequest request) => request.Kind == "budget"
+        ? request.BudgetTokens is >= 1024
+        : request.BudgetTokens is null && (IsEffortLevel(request.Kind) || request.Kind == "adaptive");
+
     /// <summary>Construye el body de la Messages API (público para tests deterministas).</summary>
     internal static string BuildBody(ModelRequest request, AnthropicProviderOptions options)
     {
         var wireNames = ToolNameWireMap.ForRequest(request, 128);
         var reasoning = request.Reasoning ?? request.Model.Reasoning;
         request.Model.Route?.ReasoningCapability.ValidateRequest(reasoning);
-        // This adapter currently represents explicit manual budgets, not effort labels.
-        // Do not silently omit a request or infer an effort-to-budget conversion.
-        if (reasoning is not null && (reasoning.Kind != "budget" || reasoning.BudgetTokens is null))
+        if (reasoning?.Kind == "budget" && reasoning.BudgetTokens is < 1024)
+            throw new ArgumentOutOfRangeException(nameof(request), "Manual thinking budget must be at least 1024 tokens.");
+        if (reasoning is not null && !CanSendReasoning(reasoning))
             throw new NotSupportedException("Selected reasoning has no representation in this adapter.");
-        if (reasoning?.BudgetTokens is <= 0)
-            throw new ArgumentOutOfRangeException(nameof(request), "Manual thinking budget must be at least 1024 tokens.");
-        var budget = reasoning?.BudgetTokens is > 0 ? reasoning.BudgetTokens.Value : 0;
-        if (budget is > 0 and < 1024)
-            throw new ArgumentOutOfRangeException(nameof(request), "Manual thinking budget must be at least 1024 tokens.");
+        var budget = reasoning?.BudgetTokens ?? 0;
         var maxOutput = request.Model.MaxOutputTokens ?? (budget > 0
             ? (long)budget + options.OutputTokensAboveReasoningBudget
             : options.DefaultMaxOutputTokens);
@@ -254,11 +256,17 @@ public sealed class AnthropicMessagesProvider : IModelProvider, IReportsRateLimi
             w.WriteString("model", request.Model.Model.ToString());
             w.WriteNumber("max_tokens", maxOutput);
             w.WriteBoolean("stream", true);
-            if (budget > 0)
+            if (budget > 0 || reasoning?.Kind == "adaptive")
             {
                 w.WriteStartObject("thinking");
-                w.WriteString("type", "enabled");
-                w.WriteNumber("budget_tokens", budget);
+                w.WriteString("type", budget > 0 ? "enabled" : "adaptive");
+                if (budget > 0) w.WriteNumber("budget_tokens", budget);
+                w.WriteEndObject();
+            }
+            if (reasoning is not null && IsEffortLevel(reasoning.Kind))
+            {
+                w.WriteStartObject("output_config");
+                w.WriteString("effort", reasoning.Kind);
                 w.WriteEndObject();
             }
 

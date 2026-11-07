@@ -565,7 +565,7 @@ public sealed class OmniHost
         return new ConfigLoader().Load(File.Exists(providersPath) ? File.ReadAllText(providersPath) : null,
             File.Exists(modelsPath) ? File.ReadAllText(modelsPath) : null,
             File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null,
-            ChatGptCatalogReasoning.Read(configDirectory));
+            ChatGptCatalogReasoning.Read(configDirectory), AnthropicCatalogReasoning.ReadDirectory(configDirectory));
     }
 
     // Examples must not count as configured connections: doing so would disable

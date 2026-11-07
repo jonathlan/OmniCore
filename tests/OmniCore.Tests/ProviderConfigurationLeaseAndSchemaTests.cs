@@ -15,7 +15,7 @@ public sealed class ProviderConfigurationLeaseAndSchemaTests
                 fixture.Directory, "fixture-model", 4096, 1024));
             Assert.Throws<IOException>(() => ProviderConnectionRegistration.EnsureAnthropicProvider(fixture.Directory));
             Assert.Throws<IOException>(() => ProviderConnectionRegistration.RegisterAnthropicModels(
-                fixture.Directory, "fixture-provider", []));
+                fixture.Directory, "fixture-provider", [], "https://fixture.invalid", false));
         }
 
         Assert.False(File.Exists(Path.Combine(fixture.Directory, "providers.yaml.write.lock")));

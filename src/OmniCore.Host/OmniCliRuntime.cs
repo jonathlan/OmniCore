@@ -2878,7 +2878,7 @@ public sealed partial class OmniCliRuntime : IDisposable
             ProviderFamily.OpenAIResponses => request.BudgetTokens is null
                 && OpenAIResponsesProvider.CanSendReasoningEffort(request.Kind,
                     profile == "codex" ? ResponsesProfile.Codex : ResponsesProfile.Api),
-            ProviderFamily.AnthropicMessages => request.Kind == "budget" && request.BudgetTokens is >= 1024,
+            ProviderFamily.AnthropicMessages => AnthropicMessagesProvider.CanSendReasoning(request),
             ProviderFamily.OpenAiChatCompatible => profile == OpenAiChatCompatibleProvider.LlamaCppProfileName
                 && request is { Kind: "off", BudgetTokens: null },
             _ => false,

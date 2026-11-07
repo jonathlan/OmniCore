@@ -21,12 +21,12 @@ public sealed class OtherAdaptersReasoningBoundaryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Anthropic_effort_without_budget_is_rejected_before_secret_or_http(bool selectionOnly)
+    public async Task Anthropic_unmapped_effort_is_rejected_before_secret_or_http(bool selectionOnly)
     {
         var handler = new CaptureHandler(AnthropicCompletion);
         var secrets = new CountingSecrets();
         var (provider, request) = AnthropicFixture(handler, secrets,
-            new ReasoningCapability(true, ["high"]), new ReasoningRequest("high", null));
+            new ReasoningCapability(true, ["provider-preview"]), new ReasoningRequest("provider-preview", null));
         if (selectionOnly) request = SelectionOnly(request);
 
         request.Model.Route!.ReasoningCapability.ValidateRequest(request.Reasoning);

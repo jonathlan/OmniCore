@@ -262,6 +262,19 @@ data: {"type":"message_stop"}
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Adaptive_thinking_does_not_send_a_numeric_budget_or_an_effort_label()
+    {
+        var handler = new QueueHandler(_ => Sse(MinimalStream("ok")));
+        var request = Request(reasoning: new ReasoningRequest("adaptive", null));
+        await Collect(CreateProvider(handler).StreamAsync(request, TestContext.Current.CancellationToken));
+        using var body = JsonDocument.Parse(handler.Requests.Single().Body);
+        var thinking = body.RootElement.GetProperty("thinking");
+        Assert.Equal("adaptive", thinking.GetProperty("type").GetString());
+        Assert.False(thinking.TryGetProperty("budget_tokens", out _));
+        Assert.False(body.RootElement.TryGetProperty("output_config", out _));
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task Configurable_output_limits_change_max_tokens()
     {
         var handler = new QueueHandler(_ => Sse(MinimalStream("ok")), _ => Sse(MinimalStream("ok")));

@@ -87,7 +87,8 @@ public sealed record ProviderConnectResult(ProviderConnectionState State, string
 /// <summary>Modelo descubierto en la Models API de Anthropic (GET /v1/models). Lo que el API no
 /// informa queda null: contexto, límites de salida y capacidades desconocidos no se inventan.</summary>
 public sealed record AvailableAnthropicModel(
-    string Id, string DisplayName, long? ContextWindow, long? MaxOutputTokens, bool? ThinkingSupported);
+    string Id, string DisplayName, long? ContextWindow, long? MaxOutputTokens, bool? ThinkingSupported,
+    IReadOnlyList<string>? ReasoningEffortLevels = null);
 
 /// <summary>Resultado del descubrimiento de modelos de Anthropic.</summary>
 /// <param name="ProviderId">Provider al que pertenecen los modelos registrados.</param>
@@ -237,6 +238,7 @@ public sealed class AnthropicModelCatalog
 
     /// <summary>Tope de lectura por página.</summary>
     internal const long MaxPageBytes = 4 * 1024 * 1024;
+    internal const string CapabilityCatalogVersion = "2026-10-21";
 
     private readonly Func<HttpClient> _httpFactory;
 
@@ -258,7 +260,9 @@ public sealed class AnthropicModelCatalog
                 AnthropicConnectionValidator.EndpointUri(baseUrl, "/v1/models?limit=" + PageSize
                     + (afterId is null ? "" : "&after_id=" + Uri.EscapeDataString(afterId))));
             request.Headers.TryAddWithoutValidation("x-api-key", apiKey);
-            request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicConnectionValidator.ApiVersion);
+            var official = request.RequestUri is { Scheme: "https", Host: "api.anthropic.com", IsDefaultPort: true };
+            request.Headers.TryAddWithoutValidation("anthropic-version",
+                official ? CapabilityCatalogVersion : AnthropicConnectionValidator.ApiVersion);
             request.Headers.TryAddWithoutValidation("User-Agent", AnthropicConnectionValidator.UserAgent());
             HttpResponseMessage response;
             try
@@ -310,10 +314,11 @@ public sealed class AnthropicModelCatalog
                     if (seen.Add(model.Id)) models.Add(model);
                 }
 
-                if (json.RootElement.TryGetProperty("has_more", out var hasMore) && hasMore.ValueKind == JsonValueKind.True
-                    && json.RootElement.TryGetProperty("last_id", out var lastId) && lastId.ValueKind == JsonValueKind.String
-                    && lastId.GetString() is { Length: > 0 } cursor)
+                if (json.RootElement.TryGetProperty("has_more", out var hasMore) && hasMore.ValueKind == JsonValueKind.True)
                 {
+                    if (!json.RootElement.TryGetProperty("last_id", out var lastId) || lastId.ValueKind != JsonValueKind.String
+                        || lastId.GetString() is not { Length: > 0 } cursor || cursor == afterId)
+                        return (models, true, quota);
                     afterId = cursor;
                     continue;
                 }
@@ -381,22 +386,33 @@ public sealed class AnthropicModelCatalog
             if (id.Length > 200 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_' or '.' or '/' or ':')))
                 throw new ProviderConnectionException("catalogInvalid",
                     "Respuesta de la Models API con un id de modelo fuera de contrato.");
-            var thinkingSupported = (bool?)null;
-            if (item.TryGetProperty("thinking", out var thinking) && thinking.ValueKind == JsonValueKind.Object
-                && thinking.TryGetProperty("types", out var types) && types.ValueKind == JsonValueKind.Object
-                && types.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.Object
-                && enabled.TryGetProperty("supported", out var supported))
-            {
-                thinkingSupported = supported.ValueKind == JsonValueKind.True;
-            }
+            var capabilities = Object(item, "capabilities");
+            var thinking = Object(capabilities, "thinking") ?? Object(item, "thinking");
+            var types = Support(thinking) is false ? null : Object(thinking, "types");
+            var effort = Object(capabilities, "effort");
+            var thinkingSupported = Support(Object(types, "enabled"));
+            var levels = new List<string>();
+            if (Support(effort) is true)
+                foreach (var level in new[] { "low", "medium", "high", "xhigh", "max" })
+                    if (Support(Object(effort, level)) is true) levels.Add(level);
+            if (Support(Object(types, "adaptive")) is true) levels.Add("adaptive");
+            if (thinkingSupported is true) levels.Add("budget");
 
             result.Add(new(id,
                 new string((Str(item, "display_name") ?? id).Where(c => !char.IsControl(c)).ToArray()),
-                NullableLong(item, "max_input_tokens"), NullableLong(item, "max_tokens"), thinkingSupported));
+                NullableLong(item, "max_input_tokens"), NullableLong(item, "max_tokens"), thinkingSupported, levels));
         }
 
         return result;
     }
+
+    private static JsonElement? Object(JsonElement? parent, string name) =>
+        parent is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var child)
+            && child.ValueKind == JsonValueKind.Object ? child : null;
+
+    private static bool? Support(JsonElement? node) =>
+        node is { } value && value.TryGetProperty("supported", out var supported)
+            && supported.ValueKind is JsonValueKind.True or JsonValueKind.False ? supported.GetBoolean() : null;
 
     private static string? Str(JsonElement item, string name) =>
         item.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
@@ -895,7 +911,7 @@ public sealed class ProviderConnectionService
         var (models, truncated, quota) = await _catalog.ListAsync(apiKey, provider.BaseUrl, cancellationToken)
             .ConfigureAwait(false);
         var registered = ProviderConnectionRegistration.RegisterAnthropicModels(
-            _paths.ConfigDirectory, provider.Id, models);
+            _paths.ConfigDirectory, provider.Id, models, provider.BaseUrl, truncated);
         ProviderConnectionMetadataStore.Write(_paths.DataDirectory, provider.Id,
             Metadata(provider.Id, cancellationToken) with { DiscoveredAt = _now() }, cancellationToken);
         return new(provider.Id, registered, truncated, quota);
@@ -1062,22 +1078,19 @@ internal static class ProviderConnectionRegistration
     /// como medida). Los modelos ya registrados se preservan intactos.
     /// </summary>
     internal static int RegisterAnthropicModels(string directory, string providerId,
-        IReadOnlyList<AvailableAnthropicModel> catalog)
+        IReadOnlyList<AvailableAnthropicModel> catalog, string expectedBaseUrl, bool truncated)
     {
         Directory.CreateDirectory(directory);
         using var lease = ProviderConfigurationLease.Acquire(directory);
         var providersPath = Path.Combine(directory, "providers.yaml");
         var modelPath = Path.Combine(directory, "models.yaml");
+        var reasoningPath = Path.Combine(directory, AnthropicCatalogReasoning.FileName);
         var oldProviders = File.Exists(providersPath) ? File.ReadAllText(providersPath) : null;
         var oldModels = File.Exists(modelPath) ? File.ReadAllText(modelPath) : null;
         var loaded = new ConfigLoader().Load(oldProviders, oldModels);
-        if (loaded.Registry.Provider(providerId) is null)
-        {
-            EnsureAnthropicProviderUnderLease(directory);
-            oldProviders = File.ReadAllText(providersPath);
-            oldModels = File.Exists(modelPath) ? File.ReadAllText(modelPath) : null;
-            loaded = new ConfigLoader().Load(oldProviders, oldModels);
-        }
+        if (loaded.Registry.Provider(providerId) is not { Family: ProviderFamily.AnthropicMessages, Auth.Kind: AuthKind.ApiKey } provider
+            || provider.BaseUrl != expectedBaseUrl)
+            throw new ProviderConnectionException("catalogInvalid", "La conexión cambió durante el descubrimiento.");
 
         var models = Parse(oldModels
             ?? (oldProviders is null
@@ -1100,32 +1113,28 @@ internal static class ProviderConnectionRegistration
             }
 
             var entry = new YamlMappingNode { { "provider", providerId } };
-            if (model.ThinkingSupported is true)
-            {
-                entry.Add("reasoning", new YamlMappingNode
-                {
-                    { "supported", new YamlScalarNode("true") },
-                    { "effortLevels", new YamlSequenceNode(new[] { new YamlScalarNode("budget") }) },
-                });
-            }
-
             modelMap.Add(model.Id, entry);
             added++;
         }
 
-        if (added == 0) return 0;
-        var newModels = Save(models);
-        _ = new ConfigLoader().Load(oldProviders, newModels); // Validar antes de tocar nada.
-        var suffix = ".backup-" + Guid.NewGuid().ToString("N");
-        if (oldModels is not null) File.Copy(modelPath, modelPath + suffix);
-        if (Read(modelPath) != oldModels) throw new IOException("Configuration changed concurrently.");
+        var oldReasoning = Read(reasoningPath);
+        var newReasoning = AnthropicCatalogReasoning.Read(oldReasoning).Refresh(provider, catalog, truncated);
+        var newModels = added > 0 ? Save(models) : oldModels;
+        if (added > 0)
+        {
+            _ = new ConfigLoader().Load(oldProviders, newModels);
+            if (oldModels is not null) File.Copy(modelPath, modelPath + ".backup-" + Guid.NewGuid().ToString("N"));
+        }
+        if (Read(providersPath) != oldProviders || Read(modelPath) != oldModels || Read(reasoningPath) != oldReasoning)
+            throw new IOException("Configuration changed concurrently.");
         try
         {
-            WriteAtomic(modelPath, newModels);
+            if (added > 0) WriteAtomic(modelPath, newModels!);
+            if (newReasoning != oldReasoning) Restore(reasoningPath, newReasoning);
         }
         catch
         {
-            if (Read(modelPath) == newModels) Restore(modelPath, oldModels);
+            if (added > 0 && Read(modelPath) == newModels) Restore(modelPath, oldModels);
             throw;
         }
 

@@ -20,10 +20,10 @@ public sealed class ConfigLoader
         Load(providersYaml, modelsYaml).Registry;
 
     public LoadedUserConfiguration Load(string? providersYaml, string? modelsYaml, string? settingsYaml = null)
-        => Load(providersYaml, modelsYaml, settingsYaml, null);
+        => Load(providersYaml, modelsYaml, settingsYaml, null, null);
 
     internal LoadedUserConfiguration Load(string? providersYaml, string? modelsYaml, string? settingsYaml,
-        ChatGptCatalogReasoning? chatGptReasoning)
+        ChatGptCatalogReasoning? chatGptReasoning, AnthropicCatalogReasoning? anthropicReasoning)
     {
         var diagnostics = new List<ConfigDiagnostic>();
         ParseSettings(settingsYaml, diagnostics);
@@ -102,7 +102,8 @@ public sealed class ConfigLoader
                         ? new ReasoningCapability(reasoning.Supported, reasoning.EffortLevels,
                             reasoning.ReplayPolicy is null ? null : Enum.Parse<ReasoningReplayPolicy>(reasoning.ReplayPolicy),
                             reasoning.UltraCodeBudgetTokens, reasoning.UltraCodeOutputReserveTokens)
-                        : chatGptReasoning?.ForModel(registry.Provider(m.Provider!), pair.Key),
+                        : chatGptReasoning?.ForModel(registry.Provider(m.Provider!), pair.Key)
+                            ?? anthropicReasoning?.ForModel(registry.Provider(m.Provider!), pair.Key),
                     outputLimitConfigured: m.MaxOutput is not null,
                     inputModalities: m.InputModalities ?? ["text"], outputModalities: m.OutputModalities ?? ["text"],
                     imageGenerationMaxCostUsd: m.ImageGenerationMaxCostUsd));

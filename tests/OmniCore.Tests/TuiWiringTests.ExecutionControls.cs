@@ -141,6 +141,38 @@ public sealed partial class TuiWiringTests
     });
 
     [Fact]
+    public void Reasoning_Claude_manual_budget_uses_Enter_to_edit_then_confirm() => RunTuiTest(fx =>
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var data = Path.Combine(fx.Root, "claude-budget");
+        var config = Path.Combine(data, "config");
+        Directory.CreateDirectory(config);
+        File.WriteAllText(Path.Combine(config, "providers.yaml"),
+            "providers:\n  fixture: {family: AnthropicMessages, baseUrl: https://fixture.invalid}\n");
+        File.WriteAllText(Path.Combine(config, "models.yaml"),
+            "models:\n  claude-fixture:\n    provider: fixture\n    reasoning: {supported: true, effortLevels: [low, adaptive, budget]}\n");
+        var policies = ModelPolicyHost.Create(data);
+        policies.Select(ModelPolicyHost.WorkspaceSelectionId(Environment.CurrentDirectory), new("fixture", "claude-fixture"),
+            "claude-fixture", true, ct);
+        fx.StartTui(policies: policies, initialColumns: 80, initialRows: 25);
+        fx.Invoke(() => fx.App.ShowReasoningPreferences());
+        var options = fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single());
+        fx.InjectKey(new Key(KeyCode.End));
+        fx.Wait(() => options.SelectedItem == 4, "End selects the manual budget");
+        fx.InjectKey(new Key(KeyCode.Enter));
+        var budget = fx.Read(() => Descendants(fx.App.Overlay!).OfType<TextField>().Single());
+        fx.Wait(() => budget.HasFocus, "Enter focuses the budget field before Apply");
+        fx.Invoke(() => budget.Text = "2048");
+        fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => fx.Read(() => fx.App.Overlay is { } overlay
+            && Descendants(overlay).OfType<Button>().Any(button => button.Id == "reasoning-apply" && button.HasFocus)),
+            "Enter advances from budget to Apply");
+        fx.InjectKey(new Key(KeyCode.Enter));
+        fx.Wait(() => fx.App.Overlay is null, "Enter on Apply saves the budget");
+        Assert.Contains("\"budgetTokens\":2048", fx.Server.Query("runReasoningPreference", ct)!.Json);
+    });
+
+    [Fact]
     public void Reasoning_run_off_is_applied_to_run_without_changing_the_user_default() => RunTuiTest(fx =>
     {
         fx.StartTui();

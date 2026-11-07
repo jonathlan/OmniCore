@@ -3,6 +3,7 @@ namespace OmniCore.Tests;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using OmniCore.Abstractions;
 using OmniCore.Client;
 using OmniCore.Domain;
@@ -660,6 +661,15 @@ models:
         await harness.Service.ConnectAnthropicAsync(ApiKey, validate: false, ct);
         harness.Handler.Respond(_ => ModelsPage(ModelJson("claude-x")));
         await harness.Service.DiscoverAnthropicModelsAsync(null, ct);
+        var registeredYaml = harness.ReadConfigFile("models.yaml");
+        harness.Handler.Respond(_ => ModelsPage("""
+            {"id":"claude-x","capabilities":{"effort":{"supported":true,"low":{"supported":true},
+              "medium":{"supported":true},"high":{"supported":false},"max":{"supported":true}},
+              "thinking":{"supported":true,"types":{"adaptive":{"supported":true},"enabled":{"supported":false}}}}}
+            """));
+        Assert.Equal(0, (await harness.Service.DiscoverAnthropicModelsAsync(null, ct)).RegisteredModels);
+        Assert.Equal("2026-10-21", harness.Handler.Requests[^1].ApiVersionHeader);
+        Assert.Equal(registeredYaml, harness.ReadConfigFile("models.yaml"));
 
         var loaded = OmniHost.LoadUserConfiguration(harness.Paths);
         var descriptor = loaded.Registry.Provider("anthropic");
@@ -670,17 +680,28 @@ models:
 
         var key = harness.Store.Load(ProviderConnectionService.AnthropicAuthRef, ct);
         Assert.NotNull(key);
-        var sse = new ScriptedHandler().Respond(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        var sse = new ScriptedHandler().Respond(request =>
         {
-            Content = new StringContent(MinimalSse(), Encoding.UTF8, "text/event-stream"),
+            using var body = JsonDocument.Parse(request.Content!.ReadAsStringAsync(ct).GetAwaiter().GetResult());
+            Assert.Equal("max", body.RootElement.GetProperty("output_config").GetProperty("effort").GetString());
+            Assert.False(body.RootElement.TryGetProperty("thinking", out _));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(MinimalSse(), Encoding.UTF8, "text/event-stream"),
+            };
         });
         var provider = new AnthropicMessagesProvider(descriptor,
             new SimpleSecretProvider("OMNI_").With(ProviderConnectionService.AnthropicAuthRef, key!),
             () => new HttpClient(sse, disposeHandler: false));
+        var route = ModelRoutingHost.RouteFor(loaded.Registry.Model("claude-x")!, descriptor);
+        Assert.Equal(new[] { "low", "medium", "max", "adaptive" }, route.ReasoningCapability.EffortLevels);
+        var run = new RunReasoningSelectionState(1, true, new ReasoningRequest("max", null), "User", null);
+        var resolution = OmniCliRuntime.ResolveReasoningResolution(run, null, route.ReasoningCapability,
+            null, null, null, ProviderFamily.AnthropicMessages);
         var request = new ModelRequest(
-            new ModelSelection(new ModelIdValue("claude-x"), 8192, ToolMode.Direct, null),
+            new ModelSelection(new ModelIdValue("claude-x"), 8192, ToolMode.Direct, null, route: route),
             [new ModelMessage(MessageRole.User, [new TextBlock("hola")])],
-            "You are OmniCore.", [], ToolChoice.Auto(), null, null, null, null);
+            "You are OmniCore.", [], ToolChoice.Auto(), null, resolution.AppliedRequest, null, null);
         var events = await Collect(provider.StreamAsync(request, ct));
         var completed = Assert.IsType<ResponseCompleted>(events[^1]);
         Assert.Equal("ok", Assert.Single(completed.Response.Content.OfType<TextBlock>()).Text);
