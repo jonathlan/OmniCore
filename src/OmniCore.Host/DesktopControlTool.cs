@@ -42,7 +42,8 @@ internal sealed class DesktopSkillGate(SessionId session, SessionSkillActivation
 }
 
 /// <summary>Fixed native implementation of one Core tool; never an arbitrary process launcher.</summary>
-internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDesktop = null, string locale = "es") : ITool, IDisposable
+internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDesktop = null, string locale = "es",
+    bool supportsVision = false) : ITool, IDisposable
 {
     internal const string Id = "desktop.control";
     private const string Schema = """
@@ -57,7 +58,8 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
     private volatile bool _disposed;
     internal bool HasStarted => _process is not null;
     public ToolDescriptor Descriptor { get; } = new(new ToolId(Id),
-        "Use OmniDesktop Control to observe or control a Windows application through the active desktop-control skill. Read that skill before calling.",
+        "Use OmniDesktop Control through the active desktop-control skill. Read the skill first. " +
+        (supportsVision ? "This route can receive window screenshots." : "This route can use accessibility and menus, but cannot receive screenshots."),
         new InputSchema(Schema), ["desktop", "native", "skill"], false, false, ToolRisk.High,
         ComponentSource.Core(), ToolProtection.None, EffectClass.NonIdempotent);
 
@@ -74,8 +76,18 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
                 || !Operations.Contains(op.GetString()!) || !root.TryGetProperty("arguments", out var args)
                 || args.ValueKind != JsonValueKind.Object || Encoding.UTF8.GetByteCount(args.GetRawText()) > 60_000)
                 return new PreparationRejected("Use operation and a bounded arguments object from the skill.", null);
+            var operation = op.GetString()!;
+            if (operation == "get_window_state")
+            {
+                var screenshotFields = args.EnumerateObject().Where(property => property.NameEquals("include_screenshot")).ToArray();
+                if (screenshotFields.Length > 1 || screenshotFields.Any(property =>
+                    property.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)))
+                    return new PreparationRejected("Set include_screenshot once, using a boolean.", null);
+                if (!supportsVision && RequestsScreenshot(operation, args))
+                    return new PreparationRejected("The current model route cannot receive screenshots. Use include_text: true or menu.", null);
+            }
             return new Prepared(new ToolIntent(call.ToolCallId, call.ToolId, root.GetRawText(),
-                Observations.Contains(op.GetString()!) ? EffectClass.None : EffectClass.NonIdempotent,
+                Observations.Contains(operation) ? EffectClass.None : EffectClass.NonIdempotent,
                 ResourceClaims.Empty(), ToolRisk.High, null));
         }
         catch (JsonException) { return new PreparationRejected("Invalid desktop request JSON.", null); }
@@ -92,15 +104,19 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
             try
             {
-                EnsureStarted();
                 using var args = JsonDocument.Parse(authorized.Intent.NormalizedArgumentsJson);
                 var operation = args.RootElement.GetProperty("operation").GetString()!;
+                var parameters = args.RootElement.GetProperty("arguments");
+                var screenshotRequested = RequestsScreenshot(operation, parameters);
+                if (screenshotRequested && !supportsVision)
+                    throw new InvalidOperationException("The current model route cannot receive screenshots.");
+                EnsureStarted();
                 var id = ++_request;
                 using var requestBytes = new MemoryStream();
                 using (var writer = new Utf8JsonWriter(requestBytes))
                 {
                     writer.WriteStartObject(); writer.WriteNumber("id", id); writer.WriteString("method", operation);
-                    writer.WritePropertyName("params"); args.RootElement.GetProperty("arguments").WriteTo(writer);
+                    writer.WritePropertyName("params"); parameters.WriteTo(writer);
                     writer.WriteEndObject();
                 }
                 var request = Encoding.UTF8.GetString(requestBytes.ToArray());
@@ -109,26 +125,9 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
                 var line = await ReadBoundedAsync(_process.StandardOutput, timeout.Token).ConfigureAwait(false);
                 var node = JsonNode.Parse(line)!.AsObject();
                 if (node["id"]?.GetValue<long>() != id) throw new InvalidDataException("Native desktop response correlation failed.");
-                ArtifactRef? artifact = null;
-                if (node["ok"]?.GetValue<bool>() == true && node["result"] is JsonObject result
-                    && result["screenshots"] is JsonArray shots)
-                {
-                    if (shots.Count > 1) throw new InvalidDataException("Unexpected screenshot count.");
-                    foreach (var shot in shots)
-                    {
-                        var url = shot!["url"]?.GetValue<string>() ?? "";
-                        if (!url.StartsWith("data:image/png;base64,", StringComparison.Ordinal) || context.Artifacts is not IBinaryArtifactStore binary)
-                            throw new InvalidDataException("Native screenshot storage is unavailable.");
-                        var bytes = Convert.FromBase64String(url[22..]);
-                        if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("Native screenshot exceeds 8 MiB.");
-                        var decoded = GeneratedImageValidator.Decode("image/png", bytes);
-                        artifact = binary.PutBytes(decoded.Bytes, decoded.MediaType, ArtifactKind.Other, Sensitivity.Sensitive)
-                            with { FileName = "desktop.png" };
-                        shot.AsObject().Remove("url"); shot.AsObject().Remove("path");
-                        shot["artifactHash"] = artifact.Hash.Value;
-                    }
-                }
                 var success = node["ok"]?.GetValue<bool>() == true;
+                var artifact = success && node["result"] is JsonObject result
+                    ? StoreScreenshot(result, context.Artifacts, supportsVision && screenshotRequested) : null;
                 var annotated = "{\"provenance\":{\"kind\":\"WindowsDesktop\",\"trust\":\"untrusted-data\"},\"externalData\":" + node.ToJsonString() + "}";
                 var summary = success ? "Desktop " + operation : "Desktop rejected: "
                     + node["error"]?["code"]?.GetValue<string>() + ": " + node["error"]?["message"]?.GetValue<string>();
@@ -142,6 +141,34 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
             }
         }
         finally { _serial.Release(); }
+    }
+
+    private static bool RequestsScreenshot(string operation, JsonElement parameters) =>
+        operation == "get_window_state" && parameters.TryGetProperty("include_screenshot", out var screenshot)
+        && screenshot.ValueKind == JsonValueKind.True;
+
+    internal static ArtifactRef? StoreScreenshot(JsonObject result, IArtifactStore? artifacts, bool expected)
+    {
+        const string dataPrefix = "data:image/png;base64,";
+        if (result["screenshots"] is not JsonArray { Count: > 0 } screenshots)
+        {
+            if (expected) throw new InvalidDataException("The requested native screenshot is missing.");
+            return null;
+        }
+        if (!expected || screenshots.Count != 1 || screenshots[0] is not JsonObject screenshot)
+            throw new InvalidDataException("Unexpected native screenshot.");
+        var url = screenshot["url"]?.GetValue<string>() ?? "";
+        if (!url.StartsWith(dataPrefix, StringComparison.Ordinal) || artifacts is not IBinaryArtifactStore binary)
+            throw new InvalidDataException("Native screenshot storage is unavailable.");
+        var bytes = Convert.FromBase64String(url[dataPrefix.Length..]);
+        if (bytes.Length > 8 * 1024 * 1024) throw new InvalidDataException("Native screenshot exceeds 8 MiB.");
+        var decoded = GeneratedImageValidator.Decode("image/png", bytes);
+        var artifact = binary.PutBytes(decoded.Bytes, decoded.MediaType, ArtifactKind.Other, Sensitivity.Sensitive)
+            with { FileName = "desktop.png" };
+        screenshot.Remove("url");
+        screenshot.Remove("path");
+        screenshot["artifactHash"] = artifact.Hash.Value;
+        return artifact;
     }
 
     private void EnsureStarted()
@@ -161,12 +188,40 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
             StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8,
             WorkingDirectory = AppContext.BaseDirectory };
         start.ArgumentList.Add("--allow-input");
+        if (VerifiedSelectorOcr(Path.Combine(AppContext.BaseDirectory, "native", "ocr")))
+            start.ArgumentList.Add("--allow-ocr");
         start.ArgumentList.Add("--locale"); start.ArgumentList.Add(locale);
         start.ArgumentList.Add("--output-dir"); start.ArgumentList.Add(Path.Combine(Path.GetTempPath(), "OmniCore-Desktop", Guid.NewGuid().ToString("N")));
         var inherited = new[] { "SystemRoot", "WINDIR", "TEMP", "TMP" }.ToDictionary(k => k, Environment.GetEnvironmentVariable);
         start.Environment.Clear(); foreach (var item in inherited) if (item.Value is not null) start.Environment[item.Key] = item.Value;
         _process = Process.Start(start) ?? throw new IOException("Cannot start native desktop component.");
         _ = MonitorCancellationAsync(_process.StandardError);
+    }
+
+    internal static bool VerifiedSelectorOcr(string directory)
+    {
+        if (!Directory.Exists(directory)) return false;
+        try
+        {
+            using var pin = typeof(DesktopControlTool).Assembly.GetManifestResourceStream("OmniCore.Host.desktop.ocr.sha256.json");
+            if (pin is null) return false;
+            using var manifest = JsonDocument.Parse(pin);
+            if (manifest.RootElement.ValueKind != JsonValueKind.Object) return false;
+            var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in manifest.RootElement.EnumerateObject())
+            {
+                if (entry.Value.ValueKind != JsonValueKind.String || !files.Add(entry.Name)) return false;
+                using var stream = File.OpenRead(Path.Combine(directory, entry.Name));
+                if (!Convert.ToHexStringLower(SHA256.HashData(stream)).Equals(entry.Value.GetString(), StringComparison.Ordinal))
+                    return false;
+            }
+            return files.Count > 0 && !Directory.EnumerateFiles(directory).Any(path =>
+                (Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+                && !files.Contains(Path.GetFileName(path)));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+        { return false; }
     }
 
     internal async System.Threading.Tasks.Task MonitorCancellationAsync(StreamReader reader)

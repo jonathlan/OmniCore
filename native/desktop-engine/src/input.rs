@@ -103,23 +103,33 @@ struct Session {
     held: Vec<(u32, u16, u16, u32, Input)>,
     sent: u32,
     mouse_guard: bool,
+    owned_popups: bool,
+    require_menu: bool,
 }
 impl Session {
     fn check(&self, p: Option<(i32, i32)>) -> Result<()> {
         crate::indicator::check()?;
+        if self.require_menu && crate::windowing::gui(self.hwnd)["menu_mode"] != true {
+            return Err(Error::new(
+                "MENU_NOT_ACTIVE",
+                "The menu loop ended before the next key; no input sent.",
+            ));
+        }
         unsafe {
             if GetAsyncKeyState(27) < 0 {
                 crate::indicator::cancel();
                 return Err(Error::new("CANCELLED", "Escape is held; input cancelled."));
             }
-            if IsWindow(self.hwnd) == 0 || GetForegroundWindow() != self.hwnd {
+            if IsWindow(self.hwnd) == 0
+                || !crate::windowing::focus_matches(self.hwnd, self.owned_popups)
+            {
                 return Err(Error::new(
                     "FOCUS_LOST",
                     "Target must remain the foreground window.",
                 ));
             }
             if let Some((x, y)) = p
-                && GetAncestor(WindowFromPoint(Point { x, y }), 2) != self.hwnd
+                && !crate::windowing::point_matches(self.hwnd, x, y, self.owned_popups)
             {
                 return Err(Error::new(
                     "POINT_NOT_TARGET",
@@ -278,12 +288,81 @@ fn chord(s: &str) -> Result<Vec<Input>> {
     items.extend(mods.iter().rev().map(|m| key(*m, 0, 2)));
     Ok(items)
 }
+fn sequence(p: &Value) -> Result<(Vec<Vec<Input>>, usize, u64)> {
+    let keys: Vec<String> = if let Some(items) = p["keys"].as_array() {
+        items
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| Error::new("INVALID_PARAMS", "keys must contain strings."))
+            })
+            .collect::<Result<_>>()?
+    } else {
+        vec![p["key"].as_str().unwrap_or("").to_string()]
+    };
+    let repeat = crate::server::integer(p, "repeat", 1, 1, 100)? as usize;
+    let delay = crate::server::integer(p, "delay_ms", 50, 0, 1000)?;
+    if keys.is_empty()
+        || keys.len() * repeat > 256
+        || (keys.len() * repeat).saturating_sub(1) * (delay as usize) > 30000
+    {
+        return Err(Error::new(
+            "INVALID_PARAMS",
+            "At most 256 keys per sequence.",
+        ));
+    }
+    let chords = keys.iter().map(|k| chord(k)).collect::<Result<Vec<_>>>()?;
+    Ok((chords, repeat, delay as u64))
+}
+pub fn validate_sequence(p: &Value) -> Result<()> {
+    sequence(p).map(|_| ())
+}
+
+pub enum TaskSwitcherAction {
+    Open,
+    Dismiss,
+    Select(i32, i32),
+}
+
+pub fn task_switcher_input(hwnd: Handle, action: TaskSwitcherAction) -> Result<()> {
+    let mut session = Session {
+        hwnd,
+        held: Vec::new(),
+        sent: 0,
+        mouse_guard: true,
+        owned_popups: false,
+        require_menu: false,
+    };
+    let result = match action {
+        TaskSwitcherAction::Open => {
+            let opened = session.send(
+                &[key(17, 0, 0), key(18, 0, 0), key(9, 0, 0), key(9, 0, 2)],
+                None,
+            );
+            if opened.is_ok() {
+                // The shell may still be handling Tab when it checks the modifiers.
+                sleep(Duration::from_millis(100));
+            }
+            opened
+        }
+        TaskSwitcherAction::Dismiss => session.send(&[key(27, 0, 0), key(27, 0, 2)], None),
+        TaskSwitcherAction::Select(x, y) => {
+            session.send(&[movement((x, y))?, mouse(2, 0), mouse(4, 0)], Some((x, y)))
+        }
+    };
+    session.cleanup()?;
+    result
+}
+
 pub fn perform(hwnd: Handle, method: &str, p: &Value, points: &[(i32, i32)]) -> Result<Value> {
     let mut s = Session {
         hwnd,
         held: Vec::new(),
         sent: 0,
         mouse_guard: matches!(method, "click" | "drag" | "scroll"),
+        owned_popups: p["allow_owned_popups"] == true,
+        require_menu: p["require_menu"] == true,
     };
     let result = (|| {
         s.check(None)?;
@@ -308,11 +387,21 @@ pub fn perform(hwnd: Handle, method: &str, p: &Value, points: &[(i32, i32)]) -> 
                 }
             }
             "press_key" => {
-                let text = p["key"]
-                    .as_str()
-                    .filter(|t| !t.is_empty() && t.len() <= 80)
-                    .ok_or_else(|| Error::new("INVALID_PARAMS", "key must be a short chord."))?;
-                s.send(&chord(text)?, None)?;
+                let (chords, repeat, delay) = sequence(p)?;
+                for round in 0..repeat {
+                    for (i, keys) in chords.iter().enumerate() {
+                        s.send(keys, None)?;
+                        if round + 1 < repeat || i + 1 < chords.len() {
+                            sleep(Duration::from_millis(delay));
+                        }
+                    }
+                }
+            }
+            "dismiss_menu" => {
+                if crate::windowing::gui(hwnd)["menu_mode"] != true {
+                    return Err(Error::new("MENU_NOT_ACTIVE", "No menu loop is active."));
+                }
+                s.send(&[key(27, 0, 0), key(27, 0, 2)], None)?;
             }
             "click" => {
                 let button = p["button"].as_str().unwrap_or("left");
@@ -414,5 +503,14 @@ mod tests {
         assert!(chord("ESC").is_err());
         assert!(chord("Ctrl+Ctrl+A").is_err());
         assert!(chord("Ctrl+A+B").is_err());
+    }
+    #[test]
+    fn sequences_validate_all_keys_and_limits_before_input() {
+        let (_, repeat, delay) =
+            sequence(&json!({"keys":["ArrowUp"],"repeat":5,"delay_ms":50})).unwrap();
+        assert_eq!((repeat, delay), (5, 50));
+        assert!(validate_sequence(&json!({"keys":["a","Win+R"]})).is_err());
+        assert!(validate_sequence(&json!({"keys":["a","b","c"],"repeat":100})).is_err());
+        assert!(validate_sequence(&json!({"keys":["a"],"repeat":100,"delay_ms":1000})).is_err());
     }
 }

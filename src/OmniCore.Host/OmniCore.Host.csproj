@@ -26,6 +26,8 @@
     <EmbeddedResource Include="..\..\native\desktop-control\desktop.sha256"
                       Condition="Exists('..\..\native\desktop-control\desktop.sha256')"
                       LogicalName="OmniCore.Host.desktop.sha256" />
+    <EmbeddedResource Include="..\..\native\desktop-control\ocr.sha256.json"
+                      LogicalName="OmniCore.Host.desktop.ocr.sha256.json" />
     <EmbeddedResource Include="..\..\docs\examples\providers.yaml" LogicalName="OmniCore.Host.examples.providers.yaml" />
     <InternalsVisibleTo Include="OmniCore.Tests" />
     <InternalsVisibleTo Include="omni" />

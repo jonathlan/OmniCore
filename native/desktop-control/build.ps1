@@ -1,4 +1,4 @@
-param([string]$Cargo = 'cargo')
+param([string]$Cargo = 'cargo', [string]$OcrRuntime = $env:OMNICORE_DESKTOP_OCR_RUNTIME)
 $ErrorActionPreference = 'Stop'
 $manifest = Join-Path $PSScriptRoot 'Cargo.toml'
 & $Cargo test --locked --manifest-path (Join-Path $PSScriptRoot "../desktop-engine/Cargo.toml") --target-dir (Join-Path $PSScriptRoot "target")
@@ -25,4 +25,24 @@ $dependencies = @($metadata.packages | Where-Object { $_.source } | ForEach-Obje
     [ordered]@{name=$package.name; version=$package.version; license=$package.license; source=$package.source}
 })
 [IO.File]::WriteAllText((Join-Path $notices 'dependencies.json'), ($dependencies | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
+if ($OcrRuntime) {
+    $runtime = (Resolve-Path -LiteralPath $OcrRuntime).Path
+    $ocrTarget = Join-Path $PSScriptRoot 'target/release/ocr'
+    $pin = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'ocr.sha256.json') -Raw | ConvertFrom-Json -AsHashtable
+    foreach ($item in $pin.GetEnumerator()) {
+        $source = Join-Path $runtime $item.Key
+        if (!(Test-Path -LiteralPath $source -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ine $item.Value) {
+            throw "El runtime OCR no coincide con el archivo fijado: $($item.Key)"
+        }
+    }
+    foreach ($relative in $pin.Keys) {
+        $destination = Join-Path $ocrTarget $relative
+        New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $runtime $relative) -Destination $destination
+    }
+    Copy-Item -LiteralPath (Join-Path $runtime 'licenses') -Destination $ocrTarget -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $runtime 'tessdata/LICENSE') -Destination (Join-Path $ocrTarget 'tessdata')
+    Copy-Item -LiteralPath (Join-Path $runtime 'ocr-runtime.lock.json') -Destination $ocrTarget
+}
 Write-Output "Native desktop built and pinned: $hash"

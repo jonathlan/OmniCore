@@ -12,8 +12,7 @@ dotnet build OmniCore.slnx
 ```
 
 El script ejecuta los tests, compila con Cargo.lock y genera `desktop.sha256`.
-Host integra ese hash como recurso del ensamblado; CLI copia únicamente el
-ejecutable fijo a `native/omnicore-desktop.exe` y los archivos de la skill.
+Host integra ese hash como recurso del ensamblado. CLI incorpora el ejecutable, la skill y el runtime OCR cuando se ha preparado.
 Después puede usarse `dotnet publish` o el empaquetado npm habitual. Un build sin
 el ejecutable verificado no puede iniciar el componente. Requiere sesión Windows
 interactiva; no es un servicio ni necesita puerto o token local.
@@ -68,3 +67,24 @@ La biblioteca se compila dentro del ejecutable distribuido; no requiere Claude,
 MCP ni rutas de fuentes en el equipo de destino. WGC es predeterminado y PrintWindow
 se elige explícitamente. Se incorporan `image_scale`, `invoke`, `set_value`, texto
 seleccionado, rueda horizontal y más alias de teclado. Véase el README del núcleo.
+
+## Foco, menús y captura en 0.7.14
+
+Usa `activate_window` con la ventana descubierta y `fallback: "task_switcher"`
+cuando la tarea autorice cambiar el foco. Se intenta la activación directa y,
+si Windows la deniega, se usa Ctrl+Alt+Tab en la misma sesión. El selector
+requiere un título único y confirma el HWND antes de devolver éxito. El permiso
+de Host para `desktop.control` sigue siendo obligatorio.
+
+La primera búsqueda usa accesibilidad. Para incluir el respaldo visual,
+ejecuta `build.ps1 -OcrRuntime <carpeta ocr del paquete portátil 0.7.2>` o
+configura `OMNICORE_DESKTOP_OCR_RUNTIME` al preparar una distribución Windows.
+El script verifica los hashes y copia el runtime y sus licencias. El Host
+habilita el OCR sólo si verifica los archivos instalados contra su manifiesto
+integrado. La captura interna del selector se usa para elegir la tarjeta y
+queda fuera del resultado de la herramienta.
+
+`get_window_state` devuelve accesibilidad por defecto. Con `menu`, lee los
+metadatos de una rama sin abrirla, acepta rutas con etiquetas repetidas y marca
+resultados parciales. Para capturar una imagen pide `include_screenshot: true`;
+OmniCore comprueba que la ruta del modelo acepte imágenes antes de la captura.

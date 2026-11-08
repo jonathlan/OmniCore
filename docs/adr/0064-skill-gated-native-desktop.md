@@ -68,6 +68,13 @@ Imágenes se publican en CAS sensible y llegan como ImageBlock al modelo, sin
 base64 en el texto. No hay hooks, elevación, clipboard ni dependencia del binario
 original. No se garantiza escena atómica ni soporte para toda aplicación.
 
+La captura para el modelo es explícita y se valida antes de iniciar el helper.
+La ruta efectiva debe admitir imágenes y herramientas nativas. El modelo de solo
+texto conserva la herramienta con accesibilidad, teclado y metadatos de menú.
+`get_window_state` con `menu` ejecuta una lectura acotada de la ventana vinculada,
+sin abrir el menú ni generar una observación apta para entrada. La alternativa
+UIA identifica su resultado como parcial y limitado a los controles visibles.
+
 El helper mantiene un indicador nativo visible mientras está vivo: cortina morada
 al 6,3 % sobre el escritorio virtual, transparente al ratón, y aviso superior sin
 activación con ventana objetivo y botón de cancelación. Escape es cancelación del
@@ -83,6 +90,14 @@ shell e indicador propio. PrintWindow captura únicamente el objetivo. El indica
 también usa WDA_EXCLUDEFROMCAPTURE como medida adicional. La cortina es un tinte
 suave, no un desenfoque del contenido. Estos controles no se incorporan a OmniCoder.
 
+
+## Recuperación de foco con el selector de Windows
+
+`activate_window` puede solicitar `fallback: "task_switcher"` dentro del mismo
+permiso de Host. El helper lo usa después de que Windows deniega la activación
+directa. Verifica el selector de Explorer, la tarjeta de título único y el HWND
+del destino. La captura del selector para OCR es interna y el Host comprueba
+los hashes de los archivos OCR antes de habilitar el respaldo visual.
 
 ## Núcleo compartido 0.4.0
 

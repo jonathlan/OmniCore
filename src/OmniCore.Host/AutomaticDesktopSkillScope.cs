@@ -19,10 +19,11 @@ internal static class DesktopSkillDemand
         var text = new string(decomposed.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray());
         text = Regex.Replace(text, @"```[\s\S]*?```|`[^`]*`|\b[\w-]+\.(?:cs|rs|py|js|tsx?|json|md|ya?ml)\b", " ", Options, TimeSpan.FromMilliseconds(100));
         if (Match(text, @"^\s*(?:explica(?:me)?\s+como|documenta|explain\s+how|what\s+is|que\s+es)\b")) return false;
-        text = Regex.Replace(text, @"\b(?:no\s+quiero\s+que|do\s+not|don't|no|sin|without)\s+(?:\w+\s+){0,2}(?:prueb\w*|prob\w*|captur\w*|control\w*|interact\w*|automat\w*|escrib\w*|test\w*|click\w*)\b", " ", Options, TimeSpan.FromMilliseconds(100));
+        text = Regex.Replace(text, @"\b(?:no\s+quiero\s+que|do\s+not|don't|no|sin|without)\s+(?:\w+\s+){0,2}(?:prueb\w*|prob\w*|captur\w*|control\w*|interact\w*|automat\w*|escrib\w*|test\w*|click\w*|inventari\w*|enumera\w*|lee|lista|read|inspect|list)\b", " ", Options, TimeSpan.FromMilliseconds(100));
         var target = Match(text, @"\b(?:ventanas?|pantalla|escritorio|aplicacion|interfaz|app|windows?|screen|desktop|application|interface|boton|teclado|raton|button|keyboard|mouse|notepad|calculadora|calculator|navegador|browser)\b|\bbloc\s+de\s+notas\b");
         var action = Match(text, @"\b(?:prueb\w*|prob(?:ar|emos|ando)|verifica\w*|comprueb\w*|captur\w*|control\w*|pulsa\w*|presiona\w*|escrib\w*|automatiz\w*|interact\w*|clic|test\w*|verify|capture|inspect|click|type|press|operate|automate|interact|screenshot)\b");
-        return target && action || Match(text, @"\b(?:haz\s+clic|toma\s+(?:una\s+)?captura\s+de\s+pantalla)\b");
+        var menuRead = Match(text, @"\b(?:lee|lista|enumera\w*|inventari\w*|read|list|inspect)\s+(?:(?:el|los|un|the|a)\s+)?menus?\b");
+        return target && (action || menuRead) || Match(text, @"\b(?:haz\s+clic|toma\s+(?:una\s+)?captura\s+de\s+pantalla)\b");
     }
 
     internal static string ReadHumanText(string? partsJson)

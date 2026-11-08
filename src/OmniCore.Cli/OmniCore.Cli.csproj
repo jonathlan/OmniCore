@@ -23,6 +23,10 @@
     <Content Include="..\..\native\desktop-control\target\release\omnicore-desktop.exe"
              Condition="Exists('..\..\native\desktop-control\target\release\omnicore-desktop.exe')"
              Link="native\omnicore-desktop.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\native\desktop-control\target\release\ocr\**\*"
+             Condition="'$(OS)' == 'Windows_NT' and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'win-x64')"
+             Link="native\ocr\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\native\desktop-control\licenses\**\*"
              Link="licenses\desktop\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

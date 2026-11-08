@@ -107,4 +107,20 @@ mod tests {
         assert!(map_coordinate(&frame, 499, true).is_err());
         assert!(map_coordinate(&frame, -1, false).is_err());
     }
+    #[test]
+    fn image_click_geometry_is_consistent_at_dpi_scales_and_monitor_origins() {
+        for dpi in [1.0f64, 1.25, 1.5] {
+            for scale in [1.0f64, 0.8, 0.5] {
+                for origin in [-1920i64, 0, 1920] {
+                    let physical = (640.0 * dpi).round() as i64;
+                    let width = (physical as f64 * scale).round() as i64;
+                    let target = (120.0 * dpi).round() as i64;
+                    let image = target * width / physical;
+                    let frame = json!({"width":width,"physicalWidth":physical,"originX":origin});
+                    let mapped = map_coordinate(&frame, image, true).unwrap();
+                    assert!((mapped - (origin + target)).abs() <= physical / width + 1);
+                }
+            }
+        }
+    }
 }

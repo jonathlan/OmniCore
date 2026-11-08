@@ -1,5 +1,5 @@
 id: desktop-control
-version: 0.4.1
+version: 0.7.14
 displayName: OmniDesktop Control
 sealed: true
 modelInvocable: true

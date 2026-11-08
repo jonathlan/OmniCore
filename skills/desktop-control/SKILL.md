@@ -1,6 +1,6 @@
 ---
 name: desktop-control
-description: Test and operate a Windows application or window using screenshots, accessibility, keyboard and mouse when the user requests desktop interaction.
+description: Test and operate a Windows application using accessibility, menu metadata, keyboard and mouse, with screenshots on model routes that accept images.
 ---
 
 # OmniDesktop Control
@@ -15,7 +15,8 @@ invoke the helper through shell/process tools or MCP.
 
 When asked to test a window, identify the intended application through discovery
 and conversation context. If several targets fit, ask which one; do not substitute
-a demo window. Observe its screenshot and accessibility together, then select a
+a demo window. Read the accessibility tree and, when useful and supported, request
+a screenshot with it. Then select a
 small, reversible test appropriate to the user's request: focus a text field and
 type a harmless sample, click a local control, scroll or navigate with a key.
 Use the UIA runtime index when available and verify the resulting text, focus,
@@ -32,13 +33,24 @@ Call with `{"operation":"<name>","arguments":{...}}`.
 
 1. `list_windows` (`include_hidden`: optional boolean) returns window objects with
    `id`, `pid`, `identity`, title and physical bounds. Select the user's intended app.
-2. `activate_window` with `window`: the discovered object. If Windows refuses
-   focus, ask the user to focus it. Do not bypass Windows access restrictions.
-3. `get_window_state` with `window`, `include_screenshot`: true,
-   `include_text`: true; optional `max_elements`: 1..500 (default 200).
-   Optional `capture_backend`: `wgc` (default) or `printwindow`; no desktop-pixel
-   fallback. Optional `image_scale`: 0.1..1. Inspect the returned image and accessibility tree. Password UIA fields are
-   redacted; screenshots can still contain private information.
+2. `activate_window` with `window`: the discovered object. When the user authorized
+   a focus change, `fallback: "task_switcher"` can try the Windows selector if
+   direct activation fails. If focus still fails, ask the user to focus the target.
+3. Choose the evidence needed with `get_window_state` and the discovered `window`:
+   - **Accessibility:** `include_text: true` is the default when no image is
+     requested. Use `max_elements` (1–500) to bound the tree. Password UIA fields
+     are redacted.
+   - **Vision:** when the tool description says the current route accepts screenshots,
+     request `include_screenshot: true`. Add `include_text: true` to combine the two.
+     The tool returns a PNG image block with an observation and screenshot ID.
+     Use `image_scale` (0.1–1) if useful. Capture uses `wgc` by default, or explicitly
+     choose `capture_backend: "printwindow"`. Screenshots can contain private data.
+   - **Menu:** request `menu: {"path":["Mantenimientos"],"max_depth":4,"max_items":100}`
+     separately from accessibility or capture. Read-only inventory never opens
+     the menu or sends a command. Use `{"name":"Reto90","occurrence":2}` in the path
+     when labels repeat. If the result is partial, inspect a smaller branch or use
+     the visible accessibility data. A menu inventory does not authorize input or
+     supply an observation ID. Get a fresh window state before acting.
 4. Perform exactly one action using that `window` and `observation_id`:
    - `click`: `element_index` from this tree OR `x`,`y`; optional `button`:
      left/right/middle (or l/r/m) and `click_count`: 1..3; right multi-clicks are rejected.

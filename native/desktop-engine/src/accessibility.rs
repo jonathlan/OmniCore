@@ -76,6 +76,7 @@ pub fn snapshot(data: &Value) -> Result<Value> {
             .ControlViewWalker()
             .map_err(|_| Error::new("UIA_FAILED", "Cannot create UIA walker."))?;
         let pid = native::pid(h) as i32;
+        let menu_metadata = crate::windowing::menu_items(h);
         let mut stack = vec![(root, 0usize, None::<usize>)];
         let mut elements = Vec::new();
         let mut lines = Vec::new();
@@ -117,6 +118,85 @@ pub fn snapshot(data: &Value) -> Result<Value> {
                 .map(|b| b.as_bool())
                 .unwrap_or(false);
             let mut record = json!({"index":index,"parent_index":parent,"depth":depth,"name":name,"control_type_id":control,"bounds":bounds,"runtime_id":runtime_id(&element),"is_password":password,"process_id":pid,"has_keyboard_focus":focus,"enabled":element.CurrentIsEnabled().map(|b|b.as_bool()).unwrap_or(false),"offscreen":element.CurrentIsOffscreen().map(|b|b.as_bool()).unwrap_or(true)});
+            record["access_key"] = json!(if sensitive {
+                String::new()
+            } else {
+                element
+                    .CurrentAccessKey()
+                    .map(|v| limit(v.to_string(), 80))
+                    .unwrap_or_default()
+            });
+            record["accelerator_key"] = json!(if sensitive {
+                String::new()
+            } else {
+                element
+                    .CurrentAcceleratorKey()
+                    .map(|v| limit(v.to_string(), 80))
+                    .unwrap_or_default()
+            });
+            record["native_hwnd"] = json!(
+                element
+                    .CurrentNativeWindowHandle()
+                    .map(|v| v.0 as isize)
+                    .unwrap_or(0)
+            );
+            let expand = element
+                .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
+                    UIA_ExpandCollapsePatternId,
+                )
+                .ok()
+                .and_then(|p| p.CurrentExpandCollapseState().ok())
+                .map(|v| v.0);
+            record["has_submenu"] = json!(control == 50011 && expand.is_some_and(|v| v != 3));
+            record["expanded"] = json!(expand == Some(1));
+            record["is_highlighted"] = json!(
+                focus
+                    || element
+                        .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(
+                            UIA_SelectionItemPatternId
+                        )
+                        .ok()
+                        .and_then(|p| p.CurrentIsSelected().ok())
+                        .is_some_and(|v| v.as_bool())
+            );
+
+            if control == 50011 && !sensitive {
+                let matches: Vec<_> = menu_metadata
+                    .iter()
+                    .filter(|m| {
+                        m["name"].as_str().is_some_and(|n| {
+                            n.replace('&', "").to_lowercase()
+                                == name.replace('&', "").to_lowercase()
+                        })
+                    })
+                    .collect();
+                if let [meta] = matches.as_slice() {
+                    record["has_submenu"] = meta["has_submenu"].clone();
+                    record["submenu_known"] = json!(true);
+                    record["menu_position"] = meta["position"].clone();
+                    record["is_highlighted"] =
+                        json!(record["is_highlighted"] == true || meta["is_highlighted"] == true);
+                    if meta["enabled"] == false {
+                        record["enabled"] = json!(false);
+                    }
+                    for key in ["access_key", "accelerator_key"] {
+                        if record[key].as_str().unwrap_or("").is_empty() {
+                            record[key] = meta[key].clone();
+                        }
+                    }
+                } else {
+                    record["submenu_known"] = json!(expand.is_some());
+                }
+            }
+            record["is_default"] = json!(
+                element
+                    .GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(
+                        UIA_LegacyIAccessiblePatternId
+                    )
+                    .ok()
+                    .and_then(|p| p.CurrentState().ok())
+                    .is_some_and(|state| state & 0x100 != 0)
+            );
             if sensitive {
                 record["value"] = json!("[redacted]");
                 redacted += 1;
@@ -223,7 +303,7 @@ pub fn action(data: &Value) -> Result<Value> {
             if native::identity(&native::describe(h)?)? != data["identity"].as_str().unwrap_or("") {
                 return Err(Error::new("WINDOW_CHANGED", "Process identity changed."));
             }
-            if native::GetForegroundWindow() != h {
+            if !crate::windowing::focus_matches(h, data["allow_owned_popups"] == true) {
                 return Err(Error::new(
                     "FOCUS_CHANGED",
                     "Target must remain foreground.",
@@ -275,7 +355,7 @@ pub fn action(data: &Value) -> Result<Value> {
                     .map_err(|_| Error::new("ELEMENT_CHANGED", "Missing bounds."))?;
                 let bounds =
                     json!({"x":r.left,"y":r.top,"width":r.right-r.left,"height":r.bottom-r.top});
-                if bounds != expected["bounds"]
+                if bounds != expected["bounds"] && data["refresh_expired"] != true
                     || !element
                         .CurrentIsEnabled()
                         .map(|v| v.as_bool())
@@ -290,12 +370,28 @@ pub fn action(data: &Value) -> Result<Value> {
                         "Element geometry or availability changed.",
                     ));
                 }
+                let safe_name = if element.CurrentIsPassword().map(|v| v.as_bool()) == Ok(false) {
+                    element
+                        .CurrentName()
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                } else {
+                    "[redacted]".into()
+                };
+                if safe_name != expected["name"].as_str().unwrap_or("")
+                    || element.CurrentControlType().map(|v| v.0).unwrap_or(0)
+                        != expected["control_type_id"].as_i64().unwrap_or(0) as i32
+                {
+                    return Err(Error::new("SNAPSHOT_STALE","RuntimeId was reused for a different element.").context(json!({"current_element":{"name":safe_name,"control_type_id":element.CurrentControlType().map(|v|v.0).unwrap_or(0)}})));
+                }
+                let mut used = "invoke";
                 validate()?;
                 if Instant::now() >= deadline {
                     return Err(Error::new("UIA_TIMEOUT", "Action expired before mutation."));
                 }
                 match data["operation"].as_str() {
                     Some("set_value") => {
+                        used = "set_value";
                         if element.CurrentIsPassword().map(|v| v.as_bool()) != Ok(false) {
                             return Err(Error::new(
                                 "PASSWORD_EXCLUDED",
@@ -335,6 +431,20 @@ pub fn action(data: &Value) -> Result<Value> {
                             )
                         })?;
                     }
+                    Some("invoke") if expected["has_submenu"] == true => {
+                        let pattern = element
+                            .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
+                                UIA_ExpandCollapsePatternId,
+                            )
+                            .map_err(|_| {
+                                Error::new("PATTERN_UNSUPPORTED", "No ExpandCollapsePattern.")
+                            })?;
+                        validate()?;
+                        pattern
+                            .Expand()
+                            .map_err(|_| Error::new("UIA_ACTION_FAILED", "Expand failed."))?;
+                        used = "expand";
+                    }
                     Some("invoke") => {
                         let pattern = element
                             .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
@@ -355,7 +465,7 @@ pub fn action(data: &Value) -> Result<Value> {
                     }
                     _ => return Err(Error::new("INVALID_PARAMS", "Unknown semantic action.")),
                 }
-                return Ok(json!({"performed":true}));
+                return Ok(json!({"performed":true,"method":used}));
             }
             if depth < 16
                 && let Ok(mut child) = walker.GetFirstChildElement(&element)
@@ -375,8 +485,12 @@ pub fn action(data: &Value) -> Result<Value> {
             }
         }
         Err(Error::new(
-            "ELEMENT_CHANGED",
-            "Element identity no longer exists.",
+            if data["refresh_expired"] == true {
+                "SNAPSHOT_STALE"
+            } else {
+                "ELEMENT_CHANGED"
+            },
+            "Element identity no longer exists; obtain a fresh observation.",
         ))
     }
 }

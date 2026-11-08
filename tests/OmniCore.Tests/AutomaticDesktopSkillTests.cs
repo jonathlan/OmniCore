@@ -14,6 +14,7 @@ public sealed class AutomaticDesktopSkillTests
     [InlineData("Test the application window and verify its text field.")]
     [InlineData("Type hello into Notepad.")]
     [InlineData("No escribas en la ventana; captura su pantalla.")]
+    [InlineData("Inventaría los menús de la ventana de mi aplicación.")]
     public void Human_desktop_requests_select_the_skill(string input)
     {
         Assert.Equal(DesktopSkillDemand.TaskType, SkillActivationContext.FromInput(input,"",Path.GetTempPath()).TaskType);
@@ -22,6 +23,7 @@ public sealed class AutomaticDesktopSkillTests
     [Theory]
     [InlineData("Explica cómo probar una ventana.")]
     [InlineData("No controles la ventana.")]
+    [InlineData("No leas los menús de la ventana.")]
     [InlineData("Refactoriza window.rs y ejecuta sus tests.")]
     [InlineData("Prueba esta función matemática.")]
     [InlineData("Escribe documentación sobre accesibilidad.")]

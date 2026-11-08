@@ -1,7 +1,9 @@
+using System.Text.Json.Nodes;
 using OmniCore.Abstractions;
 using OmniCore.Domain;
 using OmniCore.Extensions;
 using OmniCore.Host;
+using OmniCore.Infrastructure;
 using OmniCore.Security;
 using Task = System.Threading.Tasks.Task;
 
@@ -99,6 +101,54 @@ public sealed class DesktopControlToolTests
         using var f = new Fixture(); f.Activate(); using var tool = new DesktopControlTool(f.Gate);
         Assert.IsType<PreparationRejected>(tool.Prepare(new ValidatedToolCall(ToolCallId.New(), new(DesktopControlTool.Id), "fixture", json), Preparation(f)));
         Assert.False(tool.HasStarted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Screenshot_requires_a_vision_route_while_accessibility_and_menus_are_available_to_both(bool supportsVision)
+    {
+        using var f = new Fixture();
+        f.Activate();
+        using var tool = new DesktopControlTool(f.Gate, supportsVision: supportsVision);
+        ToolPreparation Prepare(string arguments) => tool.Prepare(new ValidatedToolCall(ToolCallId.New(),
+            new(DesktopControlTool.Id), "fixture", "{\"operation\":\"get_window_state\",\"arguments\":" + arguments + "}"),
+            Preparation(f));
+        var screenshot = Prepare("""{"include_screenshot":true}""");
+        if (supportsVision) Assert.IsType<Prepared>(screenshot);
+        else Assert.IsType<PreparationRejected>(screenshot);
+        Assert.IsType<Prepared>(Prepare("""{"include_text":true}"""));
+        var menu = Assert.IsType<Prepared>(Prepare("""{"menu":{"path":["Archivo"]}}"""));
+        Assert.Equal(EffectClass.None, menu.Intent.Effect);
+        Assert.IsType<PreparationRejected>(Prepare("""{"include_screenshot":false,"include_screenshot":true}"""));
+        Assert.False(tool.HasStarted);
+    }
+
+    [Fact]
+    public void Screenshot_is_sensitive_and_materializes_as_an_image_without_path_or_base64_in_result()
+    {
+        using var f = new Fixture();
+        var store = new FileArtifactStore(Path.Combine(f.Root, "artifacts"));
+        const string png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p1sAAAAASUVORK5CYII=";
+        var result = new JsonObject
+        {
+            ["screenshots"] = new JsonArray(new JsonObject
+            {
+                ["url"] = "data:image/png;base64," + png,
+                ["path"] = "private-temp-file.png",
+                ["id"] = "fixture:screenshot",
+            }),
+        };
+        Assert.Throws<InvalidDataException>(() => DesktopControlTool.StoreScreenshot(result, store, expected: false));
+        var artifact = Assert.IsType<ArtifactRef>(DesktopControlTool.StoreScreenshot(result, store, expected: true));
+        Assert.Equal(Sensitivity.Sensitive, artifact.Sensitivity);
+        var image = Assert.IsType<ImageBlock>(AttachmentContentMaterializer.Read(artifact, store));
+        Assert.Equal(Convert.FromBase64String(png), image.Bytes.ToArray());
+        var shot = result["screenshots"]![0]!.AsObject();
+        Assert.Equal("fixture:screenshot", shot["id"]!.GetValue<string>());
+        Assert.Equal(artifact.Hash.Value, shot["artifactHash"]!.GetValue<string>());
+        Assert.False(shot.ContainsKey("url"));
+        Assert.False(shot.ContainsKey("path"));
     }
 
     private static ValidatedToolCall Call(string operation = "capabilities") => new(ToolCallId.New(), new(DesktopControlTool.Id), "fixture",

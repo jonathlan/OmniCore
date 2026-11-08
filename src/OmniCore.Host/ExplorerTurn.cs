@@ -3543,6 +3543,7 @@ public sealed class ExplorerTurn
                 && nativeToolInvocations.Contains(call.ProviderCallId))
             .Select(evt => ((ToolCallRequested)_codecs.Decode(evt)).ToolCallId.ToString())
             .ToHashSet(StringComparer.Ordinal);
+        var desktopCalls = new HashSet<ToolCallId>();
         var currentHistoryRun = runId;
         long currentHistorySequence = 0;
         var historySequences = new List<long>();
@@ -3753,6 +3754,7 @@ public sealed class ExplorerTurn
                         internalToolCalls.Add(call.ToolCallId.ToString());
                         continue;
                     }
+                    if (call.ToolName == DesktopControlTool.Id) desktopCalls.Add(call.ToolCallId);
                     if (restoredCalls.Contains(call.ToolCallId.ToString())) continue;
                     var arguments = questionnaireArguments.TryGetValue(call.ToolCallId.ToString(), out var schemaJson)
                         ? schemaJson : call.ArgumentsJson;
@@ -3797,9 +3799,12 @@ public sealed class ExplorerTurn
                 if (payload is ToolCallSucceeded { ResultArtifact: { } resultArtifact }
                     && resultArtifact.MediaType.StartsWith("image/", StringComparison.Ordinal))
                 {
-                    if (!_selection.InputModalities.Contains("image", StringComparer.Ordinal))
+                    if (_selection.InputModalities.Contains("image", StringComparer.Ordinal))
+                        resultBlocks.Add(AttachmentContentMaterializer.Read(resultArtifact, _artifacts));
+                    else if (desktopCalls.Contains(callId) && (activeTurnId is null || evt.TurnId != activeTurnId))
+                        resultBlocks.Add(new TextBlock("\nA previous desktop screenshot was omitted because this model accepts text only."));
+                    else
                         throw new NotSupportedException("The effective model/provider route does not support image tool results.");
-                    resultBlocks.Add(AttachmentContentMaterializer.Read(resultArtifact, _artifacts));
                 }
                 AppendHistory(new ModelMessage(MessageRole.Tool, new ContentBlock[] {
                     new ToolResultBlock(callId!, resultBlocks,

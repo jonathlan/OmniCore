@@ -1,4 +1,7 @@
-use crate::{input, native};
+use crate::{
+    input, native,
+    task_switcher::{self, TaskSwitcher},
+};
 use base64::Engine;
 use serde_json::{Value, json};
 use std::{
@@ -13,6 +16,9 @@ use std::{
 pub struct Error {
     code: String,
     message: String,
+    hint: String,
+    retriable: bool,
+    context: Value,
 }
 pub type Result<T> = std::result::Result<T, Error>;
 impl std::fmt::Display for Error {
@@ -26,10 +32,46 @@ impl Error {
         Self {
             code: code.into(),
             message: message.into(),
+            hint: "Refresh the target observation and inspect its window family before retrying."
+                .into(),
+            retriable: matches!(
+                code,
+                "FOCUS_CHANGED"
+                    | "FOCUS_LOST"
+                    | "FOCUS_DENIED"
+                    | "FOREGROUND_LOCKED"
+                    | "STALE_OBSERVATION"
+                    | "ELEMENT_CHANGED"
+                    | "WINDOW_CHANGED"
+                    | "INPUT_BUSY"
+            ),
+            context: json!({}),
         }
     }
     pub fn value(&self) -> Value {
-        json!({"code":self.code,"message":self.message})
+        json!({"code":self.code,"message":self.message,"hint":self.hint,"retriable":self.retriable,"context":self.context})
+    }
+}
+impl Error {
+    pub fn context(mut self, context: Value) -> Self {
+        self.context = context;
+        self
+    }
+    pub fn from_value(v: &Value) -> Self {
+        let mut e = Self::new(
+            v["code"].as_str().unwrap_or("WORKER_FAILED"),
+            v["message"].as_str().unwrap_or("Native worker failed."),
+        );
+        if let Some(h) = v["hint"].as_str() {
+            e.hint = h.into();
+        }
+        if let Some(r) = v["retriable"].as_bool() {
+            e.retriable = r;
+        }
+        if v["context"].is_object() {
+            e.context = v["context"].clone();
+        }
+        e
     }
 }
 pub fn integer(p: &Value, key: &str, default: i64, min: i64, max: i64) -> Result<i64> {
@@ -117,12 +159,7 @@ fn worker(kind: &str, data: Value) -> Result<Value> {
     let answer: Value = serde_json::from_slice(&raw)
         .map_err(|_| Error::new("WORKER_FAILED", "Malformed native worker output."))?;
     if answer["ok"] != true {
-        return Err(Error::new(
-            answer["error"]["code"].as_str().unwrap_or("WORKER_FAILED"),
-            answer["error"]["message"]
-                .as_str()
-                .unwrap_or("Native worker failed."),
-        ));
+        return Err(Error::from_value(&answer["error"]));
     }
     Ok(answer["result"].clone())
 }
@@ -132,12 +169,15 @@ struct Observation {
     created: Instant,
     accessibility: Value,
     image: Value,
+    ttl: f64,
 }
 pub struct Server {
     output: PathBuf,
     ttl: f64,
     allow_input: bool,
     visible_pixels_allowed: bool,
+    allow_owned_popups: bool,
+    switcher_ocr: bool,
     bindings: HashMap<String, (String, String)>,
     observations: HashMap<String, Observation>,
 }
@@ -148,6 +188,8 @@ impl Server {
             ttl,
             allow_input,
             visible_pixels_allowed: false,
+            allow_owned_popups: false,
+            switcher_ocr: false,
             bindings: HashMap::new(),
             observations: HashMap::new(),
         }
@@ -155,6 +197,22 @@ impl Server {
     /// Adapter policy, never supplied by tool arguments. OmniCore leaves this disabled.
     pub fn allow_visible_pixel_capture(&mut self) {
         self.visible_pixels_allowed = true;
+    }
+    pub fn allow_switcher_ocr(&mut self) {
+        self.switcher_ocr = true;
+    }
+    pub fn validate_key_sequence(&self, p: &Value) -> Result<()> {
+        input::validate_sequence(p)
+    }
+    pub fn allow_owned_popup_input(&mut self) {
+        self.allow_owned_popups = true;
+    }
+    pub fn inspect_accessibility(&self, h: isize, maximum: usize) -> Result<Value> {
+        native::validate_target(h)?;
+        worker(
+            "accessibility",
+            json!({"hwnd":h,"max_elements":maximum.min(500)}),
+        )
     }
     fn invalidate(&mut self, id: &str) {
         self.observations.retain(|_, o| o.window["id"] != id);
@@ -210,7 +268,7 @@ impl Server {
                 "Observation belongs to another target.",
             ));
         }
-        if o.created.elapsed().as_secs_f64() > self.ttl {
+        if o.created.elapsed().as_secs_f64() > o.ttl {
             self.invalidate(w["id"].as_str().unwrap());
             return Err(Error::new("STALE_OBSERVATION", "Observation expired."));
         }
@@ -221,11 +279,18 @@ impl Server {
         if w["visible"] != true || w["minimized"] == true {
             return Err(Error::new("WINDOW_NOT_VISIBLE", "Target must be visible."));
         }
-        if unsafe { native::GetForegroundWindow() } != h {
+        if !crate::windowing::focus_matches(h, self.allow_owned_popups) {
             return Err(Error::new(
                 "FOCUS_CHANGED",
                 "Activate target and refresh state.",
             ));
+        }
+        if let Some(modal) = crate::windowing::blocked_by(h) {
+            return Err(Error::new(
+                "TARGET_BLOCKED_BY_MODAL",
+                "The selected window is disabled by a modal dialog.",
+            )
+            .context(json!({"blocked_by":modal})));
         }
         if p.get("screenshot_id")
             .is_some_and(|id| id != &o.image["id"])
@@ -328,17 +393,68 @@ impl Server {
             || point_x >= x + b["width"].as_i64().unwrap()
             || point_y >= y + b["height"].as_i64().unwrap()
         {
-            return Err(Error::new(
-                "OUTSIDE_TARGET",
-                "Point lies outside target bounds.",
-            ));
+            if self.allow_owned_popups
+                && crate::windowing::point_matches(
+                    native::hwnd(w)?,
+                    point_x as i32,
+                    point_y as i32,
+                    true,
+                )
+            {
+                return Ok((point_x as i32, point_y as i32));
+            }
+            let hit = unsafe {
+                native::GetAncestor(
+                    native::WindowFromPoint(native::Point {
+                        x: point_x as i32,
+                        y: point_y as i32,
+                    }),
+                    2,
+                )
+            };
+            let other = native::describe(hit)
+                .ok()
+                .map(|v| json!({"id":hit,"kind":v["kind"],"same_pid":v["pid"]==w["pid"]}));
+            return Err(Error::new("OUTSIDE_TARGET","Point lies outside target bounds.").context(json!({"target_bounds":b,"point_screen":{"x":point_x,"y":point_y},"window_at_point":other})));
         }
         Ok((point_x as i32, point_y as i32))
     }
     fn state(&mut self, p: &Value) -> Result<Value> {
         let (h, w) = self.resolve(p)?;
-        let image = boolean(p, "include_screenshot", true)?;
-        let text = boolean(p, "include_text", false)?;
+        if task_switcher::shell_switcher(h as u64) {
+            return Err(Error::new(
+                "WINDOW_REQUIRED",
+                "El selector sólo se observa internamente durante la activación.",
+            ));
+        }
+        if let Some(menu) = p.get("menu") {
+            if boolean(p, "include_screenshot", false)? || boolean(p, "include_text", false)? {
+                return Err(Error::new(
+                    "INVALID_PARAMS",
+                    "Read the menu separately from screenshot or text.",
+                ));
+            }
+            if w["visible"] != true || w["minimized"] == true {
+                return Err(Error::new(
+                    "WINDOW_NOT_VISIBLE",
+                    "Observe a visible non-minimized window.",
+                ));
+            }
+            let inventory = worker("menu", json!({"hwnd":h,"menu":menu}))?;
+            if self.bind(h)?["identity"] != w["identity"] {
+                return Err(Error::new(
+                    "WINDOW_CHANGED",
+                    "Target changed while reading the menu.",
+                ));
+            }
+            return Ok(json!({"window":w,"menu":inventory}));
+        }
+        self.observe(h, w, p)
+    }
+    fn observe(&mut self, h: isize, w: Value, p: &Value) -> Result<Value> {
+        let image = boolean(p, "include_screenshot", false)?;
+        let ttl = self.ttl;
+        let text = boolean(p, "include_text", !image)?;
         if !image && !text {
             return Err(Error::new("INVALID_PARAMS", "Request screenshot or text."));
         }
@@ -391,7 +507,7 @@ impl Server {
             }
             self.invalidate(w["id"].as_str().unwrap());
             self.observations
-                .retain(|_, o| o.created.elapsed().as_secs_f64() <= self.ttl);
+                .retain(|_, o| o.created.elapsed().as_secs_f64() <= o.ttl);
             if self.observations.len() >= 64 {
                 self.observations.clear()
             }
@@ -400,6 +516,7 @@ impl Server {
                 Observation {
                     window: w.clone(),
                     created: Instant::now(),
+                    ttl,
                     accessibility: a.clone(),
                     image: shots
                         .first()
@@ -413,22 +530,84 @@ impl Server {
                 },
             );
             Ok(
-                json!({"window":w,"observation_id":oid,"expires_in_seconds":self.ttl,"screenshots":shots,"accessibility":a,"limitations":["Sequential snapshots; content changes may remain undetected. Refresh after every input."]}),
+                json!({"window":w,"observation_id":oid,"expires_in_seconds":ttl,"screenshots":shots,"accessibility":a,"limitations":["Sequential snapshots; content changes may remain undetected. Refresh after every input."]}),
             )
         })();
         let _ = std::fs::remove_file(path);
         result
     }
+    fn activate_with_switcher(&mut self, origin: u64, h: isize, w: &Value) -> Result<&'static str> {
+        let title = w["title"].as_str().unwrap_or_default();
+        let windows: Vec<_> = native::windows(false)
+            .into_iter()
+            .filter_map(|hwnd| native::describe(hwnd).ok())
+            .collect();
+        let normalized = crate::switcher_ocr::normalize(title);
+        if normalized.is_empty()
+            || w["kind"] != "top"
+            || w["enabled"] != true
+            || windows.iter().any(|other| {
+                other["id"] != w["id"]
+                    && other["title"]
+                        .as_str()
+                        .is_some_and(|name| crate::switcher_ocr::normalize(name) == normalized)
+            })
+        {
+            return Err(Error::new(
+                "TASK_SWITCHER_UNAVAILABLE",
+                "El destino debe ser una ventana principal habilitada con título único.",
+            ));
+        }
+        crate::indicator::target(h);
+        let switcher = TaskSwitcher::open(origin)?;
+        let stamp = task_switcher::input_stamp()?;
+        let (point, source) = match switcher.card(self, title)? {
+            Some(point) => (point, "accessibility"),
+            None if self.switcher_ocr => {
+                let shell = self.bind(switcher.hwnd() as isize)?;
+                let state = self.observe(switcher.hwnd() as isize, shell, &json!({
+                    "include_screenshot":true,"include_text":false,"capture_backend":"printwindow"
+                }))?;
+                self.invalidate(&format!("0x{:x}", switcher.hwnd()));
+                (task_switcher::visual_card(&state, title, &windows)?, "ocr")
+            }
+            None => {
+                return Err(Error::new(
+                    "TASK_SWITCHER_UNAVAILABLE",
+                    "La tarjeta no se pudo leer por accesibilidad y el OCR del selector no está disponible.",
+                ));
+            }
+        };
+        let current = self.bind(h)?;
+        if current["identity"] != w["identity"]
+            || current["title"] != title
+            || current["enabled"] != true
+        {
+            return Err(Error::new(
+                "WINDOW_CHANGED",
+                "Cambió la ventana antes de elegir su tarjeta.",
+            ));
+        }
+        switcher.select(point, h as u64, stamp)?;
+        if self.bind(h)?["identity"] != w["identity"] {
+            return Err(Error::new(
+                "WINDOW_CHANGED",
+                "Cambió la identidad de la ventana activada.",
+            ));
+        }
+        Ok(source)
+    }
     fn call(&mut self, method: &str, p: &Value) -> Result<Value> {
         crate::indicator::check()?;
         match method {
             "capabilities" => Ok(
-                json!({"protocol":"ndjson-v2-independent","implementation":"rust","product":"OmniDesktop Control","input_enabled":self.allow_input,"observation_ttl_seconds":self.ttl,"capture_backend":"wgc","capture_backends":["wgc","printwindow"],"engine_version":env!("CARGO_PKG_VERSION"),"capture_scope":"window-only","activity_indicator":"purple-curtain","cancellation":["button","Escape"],"accessibility_backend":"Microsoft UI Automation","input_backend":"SendInput","methods":["list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value"]}),
+                json!({"protocol":"ndjson-v2-independent","implementation":"rust","product":"OmniDesktop Control","input_enabled":self.allow_input,"activation_fallback":"task_switcher","task_switcher_ocr":self.switcher_ocr,"observation_ttl_seconds":self.ttl,"capture_backend":"wgc","capture_backends":["wgc","printwindow"],"engine_version":env!("CARGO_PKG_VERSION"),"capture_scope":"window-only","activity_indicator":"purple-curtain","cancellation":["button","Escape"],"accessibility_backend":"Microsoft UI Automation","input_backend":"SendInput","methods":["list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value"]}),
             ),
             "list_windows" => {
                 let hidden = boolean(p, "include_hidden", false)?;
                 let list: Vec<_> = native::windows(hidden)
                     .into_iter()
+                    .filter(|h| !task_switcher::shell_switcher(*h as u64))
                     .filter_map(|h| self.bind(h).ok())
                     .collect();
                 Ok(json!(list))
@@ -439,26 +618,145 @@ impl Server {
                 if !self.allow_input {
                     return Err(Error::new("INPUT_DISABLED", "Input is disabled."));
                 }
+                let fallback = match p.get("fallback") {
+                    None => false,
+                    Some(value) if value == "none" => false,
+                    Some(value) if value == "task_switcher" => true,
+                    _ => {
+                        return Err(Error::new(
+                            "INVALID_PARAMS",
+                            "fallback debe ser none o task_switcher.",
+                        ));
+                    }
+                };
                 let (h, w) = self.resolve(p)?;
+                if task_switcher::shell_switcher(h as u64) {
+                    return Err(Error::new(
+                        "WINDOW_REQUIRED",
+                        "El selector no es una ventana de aplicación.",
+                    ));
+                }
+                if fallback && let Some(modal) = crate::windowing::blocked_by(h) {
+                    return Err(Error::new(
+                        "TARGET_BLOCKED_BY_MODAL",
+                        "La ventana tiene un diálogo modal.",
+                    )
+                    .context(json!({"dialog":modal})));
+                }
+                let direct_timeout = integer(p, "direct_timeout_ms", 150, 0, 2000)? as u64;
+                let origin = task_switcher::foreground();
+                if origin == h as u64 {
+                    self.invalidate(w["id"].as_str().unwrap());
+                    return Ok(
+                        json!({"window":w,"activated":true,"activation_method":"already_foreground",
+                        "requires_fresh_observation":true}),
+                    );
+                }
                 unsafe {
                     if native::IsIconic(h) != 0 {
                         native::ShowWindow(h, 9);
                     }
                     native::SetForegroundWindow(h);
                 }
-                for _ in 0..10 {
+                let deadline = Instant::now() + Duration::from_millis(direct_timeout);
+                loop {
+                    crate::indicator::check()?;
                     if unsafe { native::GetForegroundWindow() } == h {
                         self.invalidate(w["id"].as_str().unwrap());
                         return Ok(
-                            json!({"window":self.bind(h)?,"activated":true,"requires_fresh_observation":true}),
+                            json!({"window":self.bind(h)?,"activated":true,"activation_method":"direct","requires_fresh_observation":true}),
                         );
                     }
-                    std::thread::sleep(Duration::from_millis(50));
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    std::thread::sleep(remaining.min(Duration::from_millis(25)));
+                }
+                let title = w["title"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("la ventana seleccionada");
+                let mut context =
+                    json!({"target":{"id":w["id"],"pid":w["pid"],"title":title,"kind":w["kind"]}});
+                if fallback {
+                    self.invalidate(w["id"].as_str().unwrap());
+                    match self.activate_with_switcher(origin, h, &w) {
+                        Ok(source) => {
+                            return Ok(json!({"window":self.bind(h)?,"activated":true,
+                            "activation_method":"task_switcher","selection_source":source,"requires_fresh_observation":true}));
+                        }
+                        Err(error)
+                            if matches!(
+                                error.value()["code"].as_str(),
+                                Some("CANCELLED" | "INPUT_BUSY" | "INPUT_CLEANUP_FAILED")
+                            ) =>
+                        {
+                            return Err(error);
+                        }
+                        Err(error) => context["task_switcher"] = error.value(),
+                    }
                 }
                 Err(Error::new(
-                    "FOCUS_DENIED",
-                    "Windows denied foreground focus. Focus manually and retry.",
-                ))
+                    "FOREGROUND_LOCKED",
+                    &format!("Windows no concedió el foco. Activa «{title}» y vuelve a observar."),
+                )
+                .context(context))
+            }
+            "dismiss_menu" | "navigate_menu" => {
+                if !self.allow_input || !self.allow_owned_popups {
+                    return Err(Error::new(
+                        "RESERVED_CANCEL_KEY",
+                        "Owned menu input is unavailable in this adapter.",
+                    ));
+                }
+                let (h, w) = self.resolve(p)?;
+                if !crate::windowing::focus_matches(h, true)
+                    || crate::windowing::gui(h)["menu_mode"] != true
+                    || w["visible"] != true
+                    || w["enabled"] != true
+                    || w["minimized"] == true
+                {
+                    return Err(Error::new(
+                        "MENU_NOT_ACTIVE",
+                        "The owned menu loop is not active.",
+                    ));
+                }
+                let (operation, args) = if method == "navigate_menu" {
+                    let keys = p["keys"]
+                        .as_array()
+                        .filter(|keys| {
+                            (1..=33).contains(&keys.len())
+                                && keys.iter().all(|key| {
+                                    matches!(
+                                        key.as_str(),
+                                        Some(
+                                            "Home"
+                                                | "End"
+                                                | "ArrowUp"
+                                                | "ArrowDown"
+                                                | "ArrowRight"
+                                                | "Enter"
+                                        )
+                                    )
+                                })
+                        })
+                        .ok_or_else(|| {
+                            Error::new("INVALID_PARAMS", "Use a bounded menu navigation sequence.")
+                        })?;
+                    (
+                        "press_key",
+                        json!({"keys":keys,"delay_ms":16,"allow_owned_popups":true,"require_menu":true}),
+                    )
+                } else {
+                    (
+                        "dismiss_menu",
+                        json!({"allow_owned_popups":true,"require_menu":true}),
+                    )
+                };
+                let result = input::perform(h, operation, &args, &[])?;
+                self.invalidate(w["id"].as_str().unwrap());
+                Ok(json!({"performed":method,"details":result}))
             }
             "invoke" | "set_value" => {
                 let (h, w, o) = self.observed(p)?;
@@ -474,7 +772,7 @@ impl Server {
                     })?;
                 let result = worker(
                     "uia_action",
-                    json!({"hwnd":h,"identity":native::identity(&w)?,"element":element,"operation":method,"value":p.get("value")}),
+                    json!({"hwnd":h,"identity":native::identity(&w)?,"element":element,"operation":method,"value":p.get("value"),"allow_owned_popups":self.allow_owned_popups,"refresh_expired":o.created.elapsed().as_secs_f64()>o.ttl}),
                 );
                 self.invalidate(w["id"].as_str().unwrap());
                 Ok(
@@ -493,7 +791,18 @@ impl Server {
                 }
                 let result = (|| {
                     self.observed(p)?;
-                    input::perform(h, method, p, &points)
+                    if method == "dismiss_menu"
+                        && (!self.allow_owned_popups
+                            || crate::windowing::gui(h)["menu_mode"] != true)
+                    {
+                        return Err(Error::new(
+                            "MENU_NOT_ACTIVE",
+                            "Menu cleanup is only allowed in an active menu loop.",
+                        ));
+                    }
+                    let mut input_params = p.clone();
+                    input_params["allow_owned_popups"] = json!(self.allow_owned_popups);
+                    input::perform(h, method, &input_params, &points)
                 })();
                 self.invalidate(w["id"].as_str().unwrap());
                 Ok(

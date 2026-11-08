@@ -8,22 +8,29 @@ namespace OmniCore.Tests;
 
 public sealed partial class CliEndToEndTests
 {
-    [Fact]
-    public async Task Natural_window_request_loads_and_unloads_bundled_desktop_without_skill_commands()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Natural_window_request_loads_and_unloads_bundled_desktop_on_text_and_vision_routes(bool vision)
     {
         await InIsolatedCli(async(workspace,config,data,provider)=>
         {
-            File.WriteAllText(Path.Combine(config,"models.yaml"),"models:\n  scripted-model:\n    provider: scripted\n    context: 65536\n    maxOutput: 2048\n");
+            File.WriteAllText(Path.Combine(config,"models.yaml"),"models:\n  scripted-model:\n    provider: scripted\n    context: 65536\n    maxOutput: 2048\n"
+                + (vision ? "    inputModalities: [text, image]\n" : ""));
             SetSessionSecurityFullAgent();SetSourceModelFullAgent(data);
             using(var modes=new RunModePreferenceStore(OmniHost.CreatePlatformPaths().UserDatabasePath))modes.Set(RunMode.Act,0);
             var disclosed=new List<bool>();
             provider.RespondWith((index,body)=>
             {
                 using var request=JsonDocument.Parse(body);
-                disclosed.Add(request.RootElement.GetProperty("tools").EnumerateArray().Any(
-                    t=>t.GetProperty("function").GetProperty("parameters").TryGetProperty("properties",out var properties)
+                var desktop = request.RootElement.GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("function")).SingleOrDefault(
+                    t=>t.GetProperty("parameters").TryGetProperty("properties",out var properties)
                         && properties.TryGetProperty("operation",out var operation)
-                        && operation.TryGetProperty("enum",out var options)&&options.EnumerateArray().Any(o=>o.GetString()=="list_windows")));
+                        && operation.TryGetProperty("enum",out var options)&&options.EnumerateArray().Any(o=>o.GetString()=="list_windows"));
+                var exposed = desktop.ValueKind == JsonValueKind.Object;
+                disclosed.Add(exposed);
+                if (exposed) Assert.Contains(vision ? "can receive window screenshots" : "cannot receive screenshots",
+                    desktop.GetProperty("description").GetString());
                 return TextResponse("fixture-complete");
             });
             using var runtime=OmniCliRuntime.Create(workspace);runtime.UseConsoleInput=false;

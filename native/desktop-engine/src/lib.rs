@@ -3,9 +3,14 @@ mod capture;
 pub mod capture_wgc;
 mod indicator;
 mod input;
+pub use input::{TaskSwitcherAction, task_switcher_input};
 pub mod input_compat;
+mod menu;
 mod native;
 pub mod server;
+mod switcher_ocr;
+mod task_switcher;
+pub mod windowing;
 
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Read, Write};
@@ -45,6 +50,9 @@ pub fn run_driver() {
         }
     };
     let mut server = server::Server::new(output, ttl, args.iter().any(|a| a == "--allow-input"));
+    if args.iter().any(|a| a == "--allow-ocr") {
+        server.allow_switcher_ocr();
+    }
     let mut reader = io::BufReader::new(io::stdin().lock());
     loop {
         let mut line = Vec::new();
@@ -110,6 +118,7 @@ pub fn run_worker() -> bool {
                 Some("capture") => capture::capture(&data),
                 Some("uia_action") => accessibility::action(&data),
                 Some("accessibility") => accessibility::snapshot(&data),
+                Some("menu") => menu::snapshot(&data),
                 _ => Err(server::Error::new("INVALID_PARAMS", "Unknown worker.")),
             });
         println!(

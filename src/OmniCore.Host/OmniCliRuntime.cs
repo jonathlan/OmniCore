@@ -4009,7 +4009,8 @@ public sealed partial class OmniCliRuntime : IDisposable
                         () => ScopedMemoryAccess.Allowed(paths, workspaceRoot))] : []);
             var desktopGate = new DesktopSkillGate(sessionId, skillStore,
                 Path.Combine(AppContext.BaseDirectory, "skills", "desktop-control"));
-            using var desktopTool = new DesktopControlTool(desktopGate, () => desktopCancellation.Cancel(), locale);
+            using var desktopTool = new DesktopControlTool(desktopGate, () => desktopCancellation.Cancel(), locale,
+                supportsVision: imageToolRoute);
             using var automaticDesktopScope = delegation is null && workflowStage is null
                 ? new AutomaticDesktopSkillScope(sessionId, skillStore,
                     payload => new EventStream(server.AcquireStore(), server.AcquireCodecs(), sessionId)

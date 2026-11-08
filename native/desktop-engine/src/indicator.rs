@@ -166,6 +166,17 @@ pub fn check() -> Result<()> {
 pub fn target(window: Handle) {
     TARGET.store(window, Ordering::SeqCst);
 }
+const DISMISS_SWITCHER: u32 = 0x8001;
+
+pub fn dismiss_switcher(hwnd: Handle) {
+    let banner = BANNER.load(Ordering::SeqCst);
+    if banner != 0 && !cancelled() {
+        unsafe {
+            SendMessageW(banner, DISMISS_SWITCHER, 0, hwnd);
+        }
+    }
+}
+
 pub fn is_owned(window: Handle) -> bool {
     window != 0
         && (window == CURTAIN.load(Ordering::SeqCst) || window == BANNER.load(Ordering::SeqCst))
@@ -367,6 +378,21 @@ unsafe extern "system" fn procedure(
                 cancel();
                 ShowWindow(CURTAIN.load(Ordering::SeqCst), 0);
                 ShowWindow(window, 0);
+                0
+            }
+            DISMISS_SWITCHER
+                if !cancelled()
+                    && crate::task_switcher::foreground() == lparam as u64
+                    && crate::task_switcher::shell_switcher(lparam as u64) =>
+            {
+                // The private Escape closes this shell selector without invoking the global cancel hotkey.
+                UnregisterHotKey(window, 1);
+                let _ = crate::input::task_switcher_input(
+                    lparam,
+                    crate::input::TaskSwitcherAction::Dismiss,
+                );
+                std::thread::sleep(std::time::Duration::from_millis(35));
+                RegisterHotKey(window, 1, 0x4000, 27);
                 0
             }
             0x312 => {

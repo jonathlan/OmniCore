@@ -124,6 +124,9 @@ pub fn validate_target(h: Handle) -> Result<()> {
     if unsafe { h == GetDesktopWindow() || h == GetShellWindow() || GetAncestor(h, 2) != h }
         || pid(h) == std::process::id()
         || crate::indicator::is_owned(h)
+        || w["class_name"].as_str().is_some_and(|s| {
+            s.starts_with("OmniDesktopControlIndicator") || s.starts_with("DesktopRustIndicator")
+        })
         || matches!(
             w["class_name"].as_str(),
             Some(
@@ -175,11 +178,10 @@ pub fn describe(h: Handle) -> Result<Value> {
         let mut title = [0u16; 32768];
         let len = GetWindowTextW(h, title.as_mut_ptr(), title.len() as i32);
         let mut class = [0u16; 256];
-        let n = GetClassNameW(h, class.as_mut_ptr(), class.len() as i32);
-        Ok(
-            json!({"id":format!("0x{h:x}"),"pid":pid(h),"title":String::from_utf16_lossy(&title[..len.max(0) as usize]),
-        "app":process_path(pid(h)),"class_name":String::from_utf16_lossy(&class[..n.max(0) as usize]),"visible":IsWindowVisible(h)!=0,"minimized":IsIconic(h)!=0,"bounds":bounds(rect(h)?)}),
-        )
+        let n = GetClassNameW(h, class.as_mut_ptr(), 256);
+        let mut value = json!({"id":format!("0x{h:x}"),"pid":pid(h),"title":String::from_utf16_lossy(&title[..len.max(0) as usize]),"app":process_path(pid(h)),"class_name":String::from_utf16_lossy(&class[..n.max(0) as usize]),"visible":IsWindowVisible(h)!=0,"minimized":IsIconic(h)!=0,"bounds":bounds(rect(h)?)});
+        crate::windowing::enrich(h, &mut value);
+        Ok(value)
     }
 }
 pub fn identity(window: &Value) -> Result<String> {
@@ -228,6 +230,11 @@ pub fn windows(hidden: bool) -> Vec<Handle> {
     let mut list = Vec::new();
     unsafe {
         EnumWindows(collect, &mut list as *mut _ as isize);
+    }
+    for h in crate::windowing::extra_windows() {
+        if !list.contains(&h) {
+            list.push(h);
+        }
     }
     list.into_iter()
         .filter(|h| hidden || unsafe { IsWindowVisible(*h) != 0 })

@@ -13,6 +13,42 @@ namespace OmniCore.Tests;
 
 public sealed class ConversationHistoryCanonicalTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_previous_desktop_capture_keeps_its_metadata_on_text_routes_and_its_image_on_vision_routes(bool vision)
+    {
+        using var fixture = new Fixture();
+        var stream = new EventStream(fixture.Store, fixture.Codecs, fixture.Session);
+        var turn = TurnId.New();
+        var call = ToolCallId.New();
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p1sAAAAASUVORK5CYII=");
+        var screenshot = fixture.PutAttachment(png, "image/png", "desktop.png");
+        using (ExecutionScope.Begin(new ExecutionScopeState(fixture.Run.RunId, fixture.Run.RootTask, fixture.Run.RootLane, turn)))
+        {
+            stream.Append(new TurnStarted(turn, fixture.Run.RootLane));
+            stream.Append(new ToolCallRequested(call, "capture", DesktopControlTool.Id, "{}"));
+            stream.Append(new ToolCallPrepared(call, "{}"));
+            stream.Append(new ToolCallAuthorized(call));
+            stream.Append(new ToolCallStarted(call, EffectClass.None, null));
+            stream.Append(new ToolCallSucceeded(call, """{"observation_id":"fixture"}""") { ResultArtifact = screenshot });
+            stream.Append(new TurnCompleted(turn));
+        }
+        fixture.Reopen();
+        var explorer = fixture.CreateTurn((_, _) => Response("continued"),
+            inputModalities: vision ? ["text", "image"] : ["text"]);
+        var replay = explorer.LoadConversation(new EventStream(fixture.Store, fixture.Codecs, fixture.Session),
+            fixture.Run.RunId, TurnId.New(), fixture.Run.RootLane);
+        var result = Assert.Single(replay.SelectMany(message => message.Content).OfType<ToolResultBlock>());
+        Assert.Contains(result.Content.OfType<TextBlock>(), text => text.Text.Contains("fixture", StringComparison.Ordinal));
+        if (vision) Assert.Equal(png, Assert.Single(result.Content.OfType<ImageBlock>()).Bytes.ToArray());
+        else
+        {
+            Assert.Empty(result.Content.OfType<ImageBlock>());
+            Assert.Contains(result.Content.OfType<TextBlock>(), text => text.Text.Contains("text only", StringComparison.Ordinal));
+        }
+    }
+
     [Fact]
     public void Queued_followup_and_steering_preserve_original_text_after_reopen()
     {
