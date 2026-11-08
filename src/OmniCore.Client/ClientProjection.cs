@@ -199,6 +199,8 @@ public sealed class InteractionOverlayModel
     /// <summary>Resumen seguro del sujeto de la interacción (tool, destino y motivo).</summary>
     public string Subject { get; }
 
+    public string? SubjectJson { get; init; }
+
     /// <summary>Etiquetas localizadas de las opciones, en el orden del servidor.</summary>
     public IReadOnlyList<string> Options { get; }
 
@@ -473,7 +475,7 @@ public sealed class ClientProjection
         }
         return new InteractionOverlayModel(Get(f, "interactionId"), kind, title,
             subject, labels, ids, questionnaire, Get(f, "defaultOption"), Get(f, "runId"),
-            Get(f, "taskId"), Get(f, "laneId"), Get(f, "executionId"));
+            Get(f, "taskId"), Get(f, "laneId"), Get(f, "executionId")) { SubjectJson = Get(f, "subject") };
     }
 
     private string SubjectText(string json)

@@ -11,8 +11,9 @@ public sealed class OpenAiChatCompatibleMediaSerializationTests
 {
     [Theory]
     [InlineData("llama.cpp", true)]
+    [InlineData("ik_llama.cpp", true)]
     [InlineData("vllm", false)]
-    public void Automatic_reasoning_is_bounded_only_after_a_confirmed_local_llama_probe(string server, bool llama)
+    public void Automatic_reasoning_preserves_server_defaults_after_local_dialect_detection(string server, bool llama)
     {
         using var handler = new CaptureHandler(server: server);
         var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
@@ -29,8 +30,8 @@ public sealed class OpenAiChatCompatibleMediaSerializationTests
         Assert.Equal(1, handler.MetadataQueries);
         Assert.Equal(llama, provider.UsesLlamaCppDialect);
         using var body = JsonDocument.Parse(handler.Body!);
-        Assert.Equal(llama, body.RootElement.TryGetProperty("reasoning_budget_tokens", out var budget));
-        if (llama) Assert.Equal(30, budget.GetInt32());
+        Assert.False(body.RootElement.TryGetProperty("reasoning_budget_tokens", out _));
+        Assert.False(body.RootElement.TryGetProperty("thinking_budget_tokens", out _));
     }
 
     [Theory]

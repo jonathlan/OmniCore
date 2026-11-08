@@ -324,7 +324,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
     }
 
     private static bool AdvertisesLlamaCpp(HttpResponseMessage response, string expectedUrl) =>
-        response.IsSuccessStatusCode && response.Headers.Server.Any(entry => entry.Product?.Name == "llama.cpp")
+        response.IsSuccessStatusCode && response.Headers.Server.Any(entry => entry.Product?.Name is "llama.cpp" or "ik_llama.cpp")
         && response.RequestMessage?.RequestUri == new Uri(expectedUrl);
 
     private string BuildBody(ModelRequest request)
@@ -402,10 +402,6 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
                 ? new ChatStreamOptions(true) : null,
             MaxTokens = request.Model.MaxOutputTokens,
             ReasoningEffort = llamaCppReasoningOff ? "none" : null,
-            ReasoningBudgetTokens = _options.LimitAutomaticLocalReasoning && UsesLlamaCppDialect
-                && _descriptor.BillingMode == BillingMode.Local && reasoning is null
-                && request.Model.Route?.ReasoningCapability.Supported != false
-                    ? (int)Math.Min(128, (request.Model.MaxOutputTokens ?? 512) / 4) : null,
             ChatTemplateKwargs = llamaCppReasoningOff
                 ? new Dictionary<string, bool> { ["enable_thinking"] = false } : null,
             ToolChoice = request.ToolChoice.Mode switch
@@ -630,9 +626,6 @@ internal sealed class ChatRequestDto
 {
     [JsonPropertyName("reasoning_effort")]
     public string? ReasoningEffort { get; set; }
-
-    [JsonPropertyName("reasoning_budget_tokens")]
-    public int? ReasoningBudgetTokens { get; set; }
 
     [JsonPropertyName("chat_template_kwargs")]
     public Dictionary<string, bool>? ChatTemplateKwargs { get; set; }

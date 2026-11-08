@@ -27,7 +27,7 @@ public sealed partial class TuiWiringTests
                 .FindIndex(item => item.Contains("chosen-subscription", StringComparison.Ordinal));
             list.SetFocus();
         });
-        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "reasoning-preferences", "choose subscription and offer reasoning preferences");
+        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay is null, "choose subscription directly");
         ConfirmSelectedModelPreferences(fx, "chosen-subscription");
         fx.Wait(() => fx.App.Header!.Text.Contains("chosen-subscription"), "explicit choice in header");
         var session = fx.Server.LastSessionId()!;
@@ -204,7 +204,7 @@ public sealed partial class TuiWiringTests
             list.SetFocus();
         });
         ExportPreferenceFrame(fx, width, 30, "cached-model-after-failure", "cached-next");
-        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "reasoning-preferences", "Enter selects the registered model despite lookup failure");
+        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay is null, "Enter selects the registered model despite lookup failure");
         ConfirmSelectedModelPreferences(fx, "cached-next");
         Assert.Equal("cached-next", policies.CurrentSelection(workspace, default)!.ModelId);
         Assert.Equal("chatgpt", policies.CurrentSelection(workspace, default)!.Key.ProviderId);
@@ -278,7 +278,7 @@ public sealed partial class TuiWiringTests
             list.SelectedItem = list.Source!.ToList().Cast<object>().Select(row => row.ToString()!).ToList().FindIndex(row => row.Contains("registered-only", StringComparison.Ordinal));
             Assert.True(list.SelectedItem >= 0); list.SetFocus();
         });
-        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "reasoning-preferences", "registered model can be selected directly");
+        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay is null, "registered model can be selected directly");
         ConfirmSelectedModelPreferences(fx, "registered-only");
         Assert.Equal("registered-only", policies.CurrentSelection(ModelPolicyHost.WorkspaceSelectionId(Environment.CurrentDirectory), default)!.ModelId);
         Assert.Equal(0, account.CatalogCalls);

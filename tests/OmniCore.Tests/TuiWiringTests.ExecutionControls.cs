@@ -8,23 +8,11 @@ using Terminal.Gui.Views;
 
 public sealed partial class TuiWiringTests
 {
-    // Selecting a model now offers two explicit choices. Retain the current effort
-    // and visibility in picker tests; dedicated controls tests exercise changing them.
     private static void ConfirmSelectedModelPreferences(TuiFixture fx, string modelId)
     {
-        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-preferences", "model selection offers effort configuration");
-        Assert.Contains(modelId, fx.App.Header!.Text);
-        var userDefault = fx.Server.Query("reasoningPreference", default)?.Json;
-        var visible = fx.App.ShowReportedReasoning;
-        Assert.True(Descendants(fx.App.Overlay!).OfType<Button>().Single(view => view.Id == "reasoning-apply").Enabled);
-        ClickId(fx, "reasoning-apply");
-        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-visibility", "confirming effort offers provider reasoning visibility");
-        Assert.Equal(userDefault, fx.Server.Query("reasoningPreference", default)?.Json);
-        Assert.Equal(visible, fx.App.ShowReportedReasoning);
-        ClickId(fx, visible ? "reasoning-visible" : "reasoning-hidden");
-        ClickId(fx, "reasoning-visibility-apply");
-        fx.Wait(() => fx.App.Overlay is null && fx.App.Composer!.HasFocus, "confirming visibility returns to the conversation");
-        Assert.Equal(visible, fx.App.ShowReportedReasoning);
+        fx.Wait(() => fx.App.Overlay?.Id != "omni-model-palette", "model selection completed");
+        if (fx.App.Overlay?.Id == "model-effort-picker") ClickId(fx, "reasoning-default");
+        fx.Wait(() => fx.App.Overlay is null && fx.App.Composer!.HasFocus, "model selection returns directly to the conversation");
         Assert.Contains(modelId, fx.App.Header!.Text);
     }
 
@@ -91,18 +79,22 @@ public sealed partial class TuiWiringTests
         var before = fx.Server.Query("reasoningPreference", TestContext.Current.CancellationToken)?.Json;
         KeyWithEffect(fx, KeyCode.F3, () => fx.App.Overlay?.Id == "omni-model-palette", "real model picker opens");
         fx.Invoke(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single().SetFocus());
-        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "reasoning-preferences", "model choice prompts for effort");
+        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "model-effort-picker", "model choice offers only declared efforts");
+        Assert.Equal(before, fx.Server.Query("reasoningPreference", TestContext.Current.CancellationToken)?.Json);
+        Assert.True(fx.App.Overlay!.Frame.Width <= 72);
+        Assert.DoesNotContain(Descendants(fx.App.Overlay!), view => view.Id is "reasoning-scope-run" or "reasoning-scope-default");
         var choices = Descendants(fx.App.Overlay!).OfType<ListView>().Single();
         var rows = choices.Source!.ToList().Cast<string>().ToArray();
-        Assert.Equal(5, rows.Length);
-        Assert.Contains("Alto (high)", rows);
+        Assert.Equal(3, rows.Length);
+        Assert.Contains("Alto", rows);
         Assert.Contains("provider_special", rows);
-        fx.Invoke(() => choices.SelectedItem = 3);
+        fx.Invoke(() => choices.SelectedItem = 1);
         ExportPreferenceFrame(fx, 80, 25, "effort-declared-es", ExecutionControlsResources.Get("es", "reasoning"));
         ClickId(fx, "reasoning-apply");
-        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-visibility", "model selection offers visibility after effort");
+        fx.Wait(() => fx.App.Overlay is null, "applying effort returns to the conversation");
         Assert.Contains("\"kind\":\"high\"", fx.Server.Query("runReasoningPreference", TestContext.Current.CancellationToken)!.Json);
         Assert.Equal(before, fx.Server.Query("reasoningPreference", TestContext.Current.CancellationToken)?.Json);
+        fx.Invoke(() => fx.App.ShowReasoningVisibility());
         ClickId(fx, "reasoning-hidden");
         ClickId(fx, "reasoning-visibility-apply");
         Assert.False(fx.App.ShowReportedReasoning);
@@ -122,10 +114,12 @@ public sealed partial class TuiWiringTests
         KeyWithEffect(fx, KeyCode.F3, () => fx.App.Overlay is not null, "F3 opens the picker");
         fx.Wait(() => fx.Read(() => PickerItems(fx).Any(item => item.Contains("Subscription model"))), "the catalog is refreshed");
         ChoosePickerItem(fx, "Subscription model");
+        ConfirmSelectedModelPreferences(fx, "subscription-model");
+        fx.Invoke(() => fx.App.ShowReasoningPreferences());
         fx.Wait(() => fx.App.Overlay?.Id == "reasoning-preferences", "effort menu opened");
         var options = fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single());
         var rows = fx.Read(() => options.Source!.ToList().Cast<string>().ToArray());
-        Assert.Equal(new[] { "Restablecer / heredar", "Sin solicitud de esfuerzo", "Bajo (low)", "Medio (medium)",
+        Assert.Equal(new[] { "Usar predeterminado", "Sin solicitud de esfuerzo", "Bajo (low)", "Medio (medium)",
             "Alto (high)", "Muy alto (xhigh)", "Máximo (max)", "Ultra (ultra)" }, rows);
         fx.InjectKey(new Key(KeyCode.End));
         fx.Wait(() => options.SelectedItem == 7, "End scrolls to Ultra");
@@ -136,7 +130,7 @@ public sealed partial class TuiWiringTests
         var run = fx.Server.Query("runReasoningPreference", ct)?.Json;
         Assert.DoesNotContain("\"ultra\"", run ?? "");
         fx.InjectKey(new Key(KeyCode.Enter));
-        fx.Wait(() => fx.App.Overlay?.Id == "reasoning-visibility", "second Enter applies the effort and asks about visibility");
+        fx.Wait(() => fx.App.Overlay is null, "second Enter applies the effort and returns to the conversation");
         Assert.Contains("\"kind\":\"ultra\"", fx.Server.Query("runReasoningPreference", ct)!.Json);
     });
 

@@ -65,6 +65,7 @@ public sealed partial class TuiApp
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private View? _overlay;
     private InteractionOverlayModel? _activeInteraction;
+    private ExplicitModelRouteConsent? _selectedRouteConsent;
     private bool _sidebarOpen;
     private readonly ITuiAccountHost? _accountOverride;
     private ITuiAccountHost? _account;
@@ -1659,6 +1660,7 @@ public sealed partial class TuiApp
         {
             InvalidateAutocompleteCache();
             _cursorSession = session; _lastSequence = 0; _observedModel = null; _turnUsage = null;
+            _selectedRouteConsent = null;
             var empty = ClientState.Empty();
             _state = new ClientState(_state.Header, empty.Conversation, empty.Sidebar,
                 _state.Composer, empty.StatusLine, empty.Overlays, empty.Connection);
@@ -1751,6 +1753,7 @@ public sealed partial class TuiApp
                 && long.TryParse(fields.GetValueOrDefault("seq"), out var sequence)
                 && sequence <= _selectionObservationAfterSequence) return;
             _observedModel = model;
+            _selectedRouteConsent = null;
         }
     }
 
@@ -2077,6 +2080,12 @@ public sealed partial class TuiApp
     {
         if (_overlay is not null || _state.Overlays.Count == 0 || _window is null) return;
         var interaction = _state.Overlays[0];
+        if (_selectedRouteConsent?.Matches(_cursorSession, interaction) == true)
+        {
+            _selectedRouteConsent = null;
+            RespondChoice(interaction, "allow_route");
+            return;
+        }
         if (interaction.Questionnaire is not null) ShowQuestionnaire(interaction);
         else ShowChoiceInteraction(interaction);
     }
@@ -2726,7 +2735,10 @@ public sealed partial class TuiApp
                     _policies.ReloadModels();
                 }
                 var safe = _policies.Get(key, CancellationToken.None) is null;
+                var routeIdentity = _policies.ReadRouteIdentity(model.Id);
                 _policies.Select(WorkspaceSelectionId, key, model.Id, safe, CancellationToken.None);
+                _selectedRouteConsent = _cursorSession is { } selectedSession && routeIdentity is not null
+                    ? new ExplicitModelRouteConsent(selectedSession, routeIdentity) : null;
                 _turnStatus = safe ? _localization.Resolve("shell.safe_mode_observeonly") : null;
                 RefreshSelectedModel(); MarkExplicitModelSelection(); CloseOverlay(); RenderState();
                 ShowReasoningPreferences(forModelSelection: true);

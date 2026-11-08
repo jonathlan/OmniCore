@@ -16,6 +16,8 @@ public sealed record ModelRegistryModelDescriptor(
 /// <summary>Machine-neutral outcome when refreshing the current model selection.</summary>
 public sealed record ModelCatalogRefreshChange(string PreviousModelId, string? ReplacementModelId);
 
+public sealed record ModelRouteIdentityDto(string RouteId, string ProviderId, string IdentityHash, string BillingMode);
+
 /// <summary>Declared native reasoning facts for the configured route; null is unknown, not unsupported.</summary>
 public sealed record ModelReasoningCapabilityDto(string ModelId, string RouteId, bool? Supported,
     IReadOnlyList<string>? EffortLevels);
@@ -144,6 +146,15 @@ public sealed class ModelPolicyHost : IDisposable
     }
 
     public bool IsVisibleInPicker(string providerId, string modelId) => _pickerPreferences.IsVisible(providerId, modelId);
+
+    public ModelRouteIdentityDto? ReadRouteIdentity(string modelId)
+    {
+        var registry = _configDirectory is null ? _initialRegistry : OmniHost.LoadModelRegistry(_configDirectory);
+        var model = registry.Model(modelId);
+        if (model is null || registry.Provider(model.ProviderId) is not { } provider) return null;
+        var route = AuthorizedModelRoute.From(ModelRoutingHost.RouteFor(model, provider), provider.BillingMode);
+        return new(route.RouteId.Value, route.ProviderId, route.IdentityHash, route.BillingMode.ToString());
+    }
     public void SetVisibleInPicker(string providerId, string modelId, bool visible, CancellationToken ct) =>
         _pickerPreferences.SetVisible(providerId, modelId, visible, ct);
     public void SetVisibleInPicker(IReadOnlyList<ModelRegistryModelDescriptor> models, bool visible, CancellationToken ct) =>

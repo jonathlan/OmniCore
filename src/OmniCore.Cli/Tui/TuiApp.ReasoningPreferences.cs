@@ -156,12 +156,19 @@ public sealed partial class TuiApp
         if (runJson == "null" && runId is not null) run = (0, "reset", null);
         var sessionId = ReadSecurityPolicyPresentation().SessionId;
         var forRun = run.Revision is not null && runId is not null;
-        var kinds = new List<string> { "reset", "off" };
+        var kinds = forModelSelection ? new List<string>() : new List<string> { "reset", "off" };
         if (capability?.Supported == true && capability.EffortLevels is not null)
-            kinds.AddRange(capability.EffortLevels.Where(kind => kind is not ("reset" or "off")));
+            kinds.AddRange(capability.EffortLevels.Where(kind => kind != "reset" && (forModelSelection || kind != "off")).Distinct());
+        if (forModelSelection && kinds.Count == 0) return;
         var frame = ControlFrame(ControlText("reasoning"), "reasoning-preferences");
+        if (forModelSelection)
+        {
+            frame.Id = "model-effort-picker";
+            frame.Width = Dim.Func(_ => Math.Min(72, Math.Max(20, _window!.Viewport.Width - 4)));
+            frame.Height = Dim.Func(_ => Math.Min(12 + Math.Min(kinds.Count, 6), _window!.Viewport.Height - 2));
+        }
         var heading = new Label { X = 2, Y = 1, Width = Dim.Fill(2), Height = 3,
-            Text = (forModelSelection ? ControlText("model_selected") + "\n" : "") + (modelId ?? "—") };
+            Text = modelId ?? "—" };
         var active = new Button { Id = "reasoning-scope-run", X = 2, Y = 4, Enabled = run.Revision is not null && runId is not null };
         var future = new Button { Id = "reasoning-scope-default", X = Pos.Right(active) + 1, Y = 4 };
         var status = new Label { Id = "reasoning-current", X = 2, Y = 6, Width = Dim.Fill(2), Height = 1 };
@@ -170,7 +177,7 @@ public sealed partial class TuiApp
         {
             "reset" or "off" => ControlText(kind),
             "minimal" or "low" or "medium" or "high" or "xhigh" or "max" or "ultra" or "budget" or "adaptive"
-                => ControlText("effort." + kind) + " (" + kind + ")",
+                => ControlText("effort." + kind) + (forModelSelection ? "" : " (" + kind + ")"),
             _ => kind,
         };
         options.SetSource(new ObservableCollection<string>(kinds.Select(KindLabel)));
@@ -180,6 +187,17 @@ public sealed partial class TuiApp
             Text = capability?.Supported == false ? ControlText("unsupported")
                 : capability?.EffortLevels is not { Count: > 0 } ? ControlText("unknown") : ControlText("reasoning_intro") };
         var apply = new Button { Id = "reasoning-apply", X = Pos.AnchorEnd(18), Y = Pos.AnchorEnd(2), Text = ControlText("apply") };
+        if (forModelSelection)
+        {
+            heading.Height = 1;
+            options.Y = 6;
+            options.Height = Math.Min(kinds.Count, 6);
+            detail.Y = 2; detail.Height = 3;
+            detail.Text = ControlText("model_effort_help");
+            budgetLabel.Y = budget.Y = 7 + Math.Min(kinds.Count, 6);
+            budgetLabel.Width = 26; budget.X = 30;
+            apply.Text = ControlText("use_effort");
+        }
         void BudgetState() { var enabled = kinds[options.SelectedItem ?? 0] == "budget"; budget.Visible = budgetLabel.Visible = enabled; }
         void Sync()
         {
@@ -201,12 +219,11 @@ public sealed partial class TuiApp
         options.ValueChanged += (_, _) =>
         {
             BudgetState();
-            if (capability?.Supported == true && capability.EffortLevels is { Count: > 0 })
+            if (!forModelSelection && capability?.Supported == true && capability.EffortLevels is { Count: > 0 })
                 detail.Text = ControlText("effort_hint");
         };
-        apply.Accepted += (_, _) =>
+        void ApplySelection(string selected)
         {
-            var selected = kinds[options.SelectedItem ?? 0];
             if (modelId != (_selectedModel ?? _observedModel) || sessionId != ReadSecurityPolicyPresentation().SessionId
                 || forRun && runId != ControlJsonString(ReadControlQuery("modeAuthority"), "runId"))
             { detail.Text = ControlText("reasoning_changed"); return; }
@@ -239,13 +256,26 @@ public sealed partial class TuiApp
                 if (ack.Outcome?.Kind == RuntimeCommandOutcomeKind.Deferred)
                 { detail.Text = _localization.Resolve("shell.the_active_turn_still_has_a_model_step_retry_after_it_completes"); return; }
                 CloseOverlay(); PollEvents();
-                if (forModelSelection) ShowReasoningVisibility();
             }
             catch (Exception) { detail.Text = _localization.Resolve("shell.reasoning_change_rejected"); }
-        };
+        }
+        apply.Accepted += (_, args) => { args.Handled = true; ApplySelection(kinds[options.SelectedItem ?? 0]); };
         EnterNavigation.Focus(() => budget.Visible ? budget : apply, options);
         EnterNavigation.Focus(apply, budget);
-        Sync(); frame.Add(heading, active, future, status, options, budgetLabel, budget, detail, apply); ControlBack(frame);
+        Sync(); frame.Add(heading, options, budgetLabel, budget, detail, apply);
+        if (forModelSelection)
+        {
+            var useDefault = new Button { Id = "reasoning-default", X = 2, Y = Pos.AnchorEnd(2), Text = ControlText("reset") };
+            useDefault.Accepted += (_, args) =>
+            {
+                args.Handled = true;
+                if ((forRun ? run : user).Kind == "reset") CloseOverlay();
+                else ApplySelection("reset");
+            };
+            frame.Add(useDefault);
+            frame.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Esc) { key.Handled = true; CloseOverlay(); } };
+        }
+        else { frame.Add(active, future, status); ControlBack(frame); }
         OpenControlFrame(frame, options);
     }
 }

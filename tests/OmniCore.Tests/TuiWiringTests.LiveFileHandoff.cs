@@ -133,7 +133,7 @@ public sealed partial class TuiWiringTests
             fx.Wait(() => PickerItems(fx).Any(row => row.Contains(targetId)), "DeepSeek exacto disponible");
             fx.Invoke(() => fx.App.Overlay!.SubViews.OfType<ListView>().Single().SetFocus());
             fx.InjectKey(new Key(KeyCode.Enter));
-            fx.Wait(() => fx.App.Overlay is null && fx.App.Header!.Text.Contains(targetId), "cambio a DeepSeek mediante Enter");
+            ConfirmSelectedModelPreferences(fx, targetId);
             const string editPrompt = "Continúa sobre el mismo archivo que acabas de crear. Cambia únicamente la línea de estado a 'estado: editado por DeepSeek'. "
                 + "Lee primero el archivo y aplica un parche localizado. Conserva literalmente las otras 19 líneas y el salto final; "
                 + "no lo recrees ni lo reescribas completo, no ejecutes procesos y no crees otros archivos. "
@@ -141,16 +141,13 @@ public sealed partial class TuiWiringTests
             Stage("deepseek-selected");
             Type(fx, editPrompt);
             fx.InjectKey(new Key(KeyCode.Enter));
-            fx.Wait(() => fx.Decoded<InteractionRequested>().Any(item => item.Kind == InteractionKind.ModelRouteConsent)
-                && fx.App.Overlay is not null, "autorización de la conexión DeepSeek");
+            fx.Wait(() => fx.Decoded<InteractionResolved>().Any(item => item.OptionId == "allow_route"),
+                "selección explícita autoriza la conexión DeepSeek");
             var consent = Assert.Single(fx.Decoded<InteractionRequested>(), item => item.Kind == InteractionKind.ModelRouteConsent);
             Assert.Equal(targetId, SessionRoutingAuthorization.Parse(consent)!.Route.RouteId.Value);
             var inputCount = fx.Decoded<UserInputReceived>().Count();
             Assert.Equal(3, inputCount); // seed, Luna creation request, single DeepSeek edit request
             Stage("deepseek-consent");
-            fx.Invoke(() => fx.App.Overlay!.SubViews.OfType<Button>()
-                .Single(button => button.Text.Contains("Usar en esta conversación")).SetFocus());
-            fx.InjectKey(new Key(KeyCode.Enter)); // A single approval must resume the already submitted input.
             WaitForReply(2);
             var after = File.ReadAllText(targetFile);
             originalFile.Position = 0;

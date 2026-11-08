@@ -95,21 +95,15 @@ public sealed partial class TuiWiringTests
                 list.SetFocus();
             });
             fx.InjectKey(new Key(KeyCode.Enter));
-            fx.Wait(() => fx.App.Overlay is null && fx.App.Header!.Text.ToString().Contains(sol.Id), "Sol seleccionado mediante Enter");
+            ConfirmSelectedModelPreferences(fx, sol.Id);
             const string pending = "Repite la clave de continuidad que te di antes. Responde solamente con la clave.";
             Type(fx, pending);
             fx.InjectKey(new Key(KeyCode.Enter));
-            fx.Wait(() => fx.Decoded<InteractionRequested>().Any(item => item.Kind == InteractionKind.ModelRouteConsent)
-                && fx.App.Overlay is not null, "consentimiento para usar Sol");
+            fx.Wait(() => fx.Decoded<InteractionResolved>().Any(item => item.OptionId == "allow_route"),
+                "selección explícita autoriza usar Sol");
             var consent = Assert.Single(fx.Decoded<InteractionRequested>(), item => item.Kind == InteractionKind.ModelRouteConsent);
             Assert.Equal(sol.Id, SessionRoutingAuthorization.Parse(consent)!.Route.RouteId.Value);
             var inputsAtConsent = fx.Decoded<UserInputReceived>().Count();
-            Assert.Single(fx.Decoded<ModelStepStarted>());
-            ExportPreferenceFrame(fx, 120, 40, "live-sol-consent", "Usar en esta conversación");
-            fx.Invoke(() => fx.App.Overlay!.SubViews.OfType<Button>()
-                .Single(button => button.Text.ToString().Contains("Usar en esta conversación")).SetFocus());
-            // One Enter. No additional send, resume callback or retry injected by the test.
-            fx.InjectKey(new Key(KeyCode.Enter));
             WaitForLiveReply(2);
             var messages = fx.Decoded<AssistantMessageRecorded>();
             var solText = fx.Artifacts.GetText(messages.Last().ContentRef!.Hash)!;
