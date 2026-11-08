@@ -69,7 +69,8 @@ function samePath(left, right) {
 }
 
 function writeState(statePath, operation, operationId, expectedStatus, patch) {
-  const current = readState(statePath);
+  const original = fs.readFileSync(statePath, 'utf8');
+  const current = JSON.parse(original);
   if (current.operation !== operation || current.operationId !== operationId
       || current.status !== expectedStatus) throw new Error('stale_operation');
   const next = { ...current, ...patch, updatedAtUtc: new Date().toISOString() };
@@ -81,11 +82,12 @@ function writeState(statePath, operation, operationId, expectedStatus, patch) {
   } finally {
     fs.closeSync(descriptor);
   }
-  fs.renameSync(temporary, statePath);
+  replaceStateFile(temporary, statePath, original);
   return next;
 }
 
 function replaceState(statePath, next) {
+  const original = fs.readFileSync(statePath, 'utf8');
   const temporary = statePath + '.' + process.pid + '.' + crypto.randomBytes(8).toString('hex') + '.tmp';
   const descriptor = fs.openSync(temporary, 'wx', 0o600);
   try {
@@ -94,7 +96,26 @@ function replaceState(statePath, next) {
   } finally {
     fs.closeSync(descriptor);
   }
-  fs.renameSync(temporary, statePath);
+  replaceStateFile(temporary, statePath, original);
+}
+
+function replaceStateFile(temporary, statePath, original) {
+  const deadline = Date.now() + 1000;
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  try {
+    while (true) {
+      if (fs.readFileSync(statePath, 'utf8') !== original) throw new Error('stale_operation');
+      try {
+        fs.renameSync(temporary, statePath);
+        return;
+      } catch (error) {
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || Date.now() >= deadline) throw error;
+        Atomics.wait(sleeper, 0, 0, 25);
+      }
+    }
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
 }
 
 function verifyArchive(filePath, expectedSha256, expectedSize) {
@@ -736,6 +757,51 @@ function preflightWindowsPackageDlls(packageDirectory) {
   visit(root);
 }
 
+async function verifyInterruptedInstall(args) {
+  if (args.yes !== 'true') throw new Error('update_verification_confirmation_required');
+  if (process.platform !== 'win32') throw new Error('update_verification_windows_only');
+  const statePath = args.state;
+  const receiptPath = args.receipt;
+  const operationId = args['operation-id'];
+  const packageDirectory = args['package-directory'];
+  const nodePath = args.node;
+  if (!statePath || !path.isAbsolute(statePath) || !regularFile(statePath)) throw new Error('missing_state');
+  if (!receiptPath || !path.isAbsolute(receiptPath) || !regularFile(receiptPath)
+      || !samePath(path.dirname(receiptPath), path.dirname(statePath))
+      || !path.basename(receiptPath).startsWith(path.basename(statePath) + '.')
+      || !receiptPath.endsWith('.tmp')) throw new Error('invalid_interrupted_receipt');
+  if (!/^[a-f0-9]{32}$/.test(operationId || '')) throw new Error('invalid_operation_id');
+  if (!nodePath || !path.isAbsolute(nodePath) || !regularFile(nodePath)) throw new Error('missing_node');
+  if (!packageDirectory || !path.isAbsolute(packageDirectory)) throw new Error('invalid_package_directory');
+  const stateLock = await acquireStateMutationLock(statePath);
+  try {
+    const state = assertOperation(statePath, 'Apply', operationId, 'Unknown');
+    if (!absentOrDead(state.parentPid) || !absentOrDead(state.helperPid) || !absentOrDead(state.npmPid))
+      throw new Error('operation_in_progress');
+    const receipt = readState(receiptPath);
+    if (receipt.status !== 'Running' || receipt.detail !== 'verifying_installed_cli'
+        || !state.detail?.includes(receiptPath)) throw new Error('invalid_interrupted_receipt');
+    for (const key of ['schemaVersion', 'operation', 'operationId', 'fromVersion', 'toVersion', 'assetPath',
+      'expectedSha256', 'expectedSize', 'npmPrefix', 'parentPid', 'helperPid', 'npmPid', 'backupPath', 'backupSha256'])
+      if (state[key] !== receipt[key]) throw new Error('interrupted_receipt_mismatch');
+    if (!state.npmPrefix || !path.isAbsolute(state.npmPrefix)
+        || !samePath(packageDirectory, path.join(state.npmPrefix, 'node_modules', 'omnicore-cli')))
+      throw new Error('package_directory_mismatch');
+    if (!semverPattern.test(state.toVersion || '')) throw new Error('invalid_expected_version');
+    verifyArchive(state.assetPath, state.expectedSha256, state.expectedSize);
+    const launcher = verifyInstalledPackage(packageDirectory, 'omnicore-cli', state.toVersion);
+    smokeInstalledCli(launcher, nodePath, statePath, operationId, SMOKE_TIMEOUT_MS);
+    assertStateMutationLock(stateLock);
+    const current = assertOperation(statePath, 'Apply', operationId, 'Unknown');
+    if (JSON.stringify(current) !== JSON.stringify(state)) throw new Error('stale_operation');
+    writeState(statePath, 'Apply', operationId, 'Unknown', { status: 'Succeeded', detail: 'update_verified_after_receipt_failure' });
+    process.stdout.write('update_verified_without_reinstall\n');
+    return 0;
+  } finally {
+    await releaseStateMutationLock(stateLock);
+  }
+}
+
 async function main() {
   if (process.argv[2] === '--npm-child') {
     await npmChildMain(process.argv[3] || '');
@@ -743,6 +809,7 @@ async function main() {
   }
   const args = parseArgs(process.argv.slice(2));
   const mode = args.mode;
+  if (mode === 'verify-install') return verifyInterruptedInstall(args);
   if (mode === 'recover') return launchRecoveryHelper(args);
   const operation = operationName(mode);
   const parentPid = Number(args['parent-pid']);
@@ -921,7 +988,7 @@ async function main() {
   }
 }
 
-module.exports = { verifyArchive, fingerprintDirectory, parseArgs, runNpm, verifyInstalledPackage, smokeInstalledCli };
+module.exports = { verifyArchive, fingerprintDirectory, parseArgs, runNpm, verifyInstalledPackage, smokeInstalledCli, writeState };
 
 if (require.main === module) {
   main().then(code => { process.exitCode = code; }).catch(error => {

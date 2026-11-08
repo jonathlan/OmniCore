@@ -47,7 +47,8 @@ public sealed class ReleaseUpdateStateStore
         if (!File.Exists(_statePath)) return true;
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllBytes(_statePath));
+            using var stream = new FileStream(_statePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var document = JsonDocument.Parse(stream);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("schemaVersion", out var schema) || !schema.TryGetInt32(out var schemaVersion)

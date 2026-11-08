@@ -32,6 +32,18 @@ es `juancgomezm-s/OmniCore`; `main` y los drafts no son versiones estables.
 
 ## Decisión
 
+**Corrección verificada durante la actualización solicitada por el usuario
+(2026-11-07):** los lectores del recibo permiten su reemplazo atómico en Windows.
+El helper reintenta únicamente el rename de metadatos durante un máximo de un
+segundo, revalidando el recibo original; nunca reejecuta npm por ese fallo.
+La verificación manual `verify-install`, con confirmación explícita, puede
+completar un Apply/Unknown sólo cuando conserva el temporal exacto de
+`verifying_installed_cli`, coinciden todas las identidades y los procesos han
+terminado. Revalida paquete y arranque bajo lock antes de registrar éxito.
+Es reconciliación del efecto existente, no un reintento de instalación ni una
+autorización genérica para recuperar cualquier Unknown. Véase
+[evidencia y límites](../validation/update-state-sharing-20261107.md).
+
 1. **La red es manual y explícita.** `omni update check` y la vista de preferencias
    sólo consultan GitHub después de una acción humana. `stable` es el canal por
    defecto; `preview` exige selección explícita. No hay comprobación automática,

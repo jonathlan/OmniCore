@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const test = require('node:test');
-const { fingerprintDirectory, verifyArchive } = require('../../bin/update-helper.js');
+const { fingerprintDirectory, verifyArchive, writeState } = require('../../bin/update-helper.js');
 
 const helper = path.resolve(__dirname, '../../bin/update-helper.js');
 const operationId = '1234567890abcdef1234567890abcdef';
@@ -37,6 +37,128 @@ function stateFile(directory, patch = {}) {
     ...patch,
   }));
   return statePath;
+}
+
+test('state publication tolerates a transient sharing violation without repeating npm', context => {
+  const directory = tempDirectory();
+  try {
+    const statePath = stateFile(directory);
+    const rename = fs.renameSync;
+    let attempts = 0;
+    context.mock.method(fs, 'renameSync', (...args) => {
+      if (++attempts < 3) throw Object.assign(new Error('sharing violation'), { code: 'EPERM' });
+      return rename(...args);
+    });
+    writeState(statePath, 'Apply', operationId, 'Pending', { status: 'Succeeded' });
+    assert.equal(attempts, 3);
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).status, 'Succeeded');
+    assert.deepEqual(fs.readdirSync(directory), ['state.json']);
+  } finally {
+    context.mock.restoreAll();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('state publication refuses a changed receipt during a sharing violation', context => {
+  const directory = tempDirectory();
+  try {
+    const statePath = stateFile(directory);
+    context.mock.method(fs, 'renameSync', () => {
+      const current = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      fs.writeFileSync(statePath, JSON.stringify({ ...current, operationId: 'fedcba0987654321fedcba0987654321' }));
+      throw Object.assign(new Error('sharing violation'), { code: 'EPERM' });
+    });
+    assert.throws(() => writeState(statePath, 'Apply', operationId, 'Pending', { status: 'Succeeded' }), /stale_operation/);
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).status, 'Pending');
+    assert.deepEqual(fs.readdirSync(directory), ['state.json']);
+  } finally {
+    context.mock.restoreAll();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('state publication bounds persistent locks and preserves the previous receipt', context => {
+  const directory = tempDirectory();
+  try {
+    const statePath = stateFile(directory);
+    const original = fs.readFileSync(statePath, 'utf8');
+    context.mock.method(fs, 'renameSync', () => {
+      throw Object.assign(new Error('locked'), { code: 'EPERM' });
+    });
+    const started = Date.now();
+    assert.throws(() => writeState(statePath, 'Apply', operationId, 'Pending', { status: 'Succeeded' }), /locked/);
+    assert.ok(Date.now() - started < 3000);
+    assert.equal(fs.readFileSync(statePath, 'utf8'), original);
+    assert.deepEqual(fs.readdirSync(directory), ['state.json']);
+  } finally {
+    context.mock.restoreAll();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('state publication survives a real Windows reader without delete sharing', { skip: process.platform !== 'win32' }, async () => {
+  const directory = tempDirectory();
+  let reader;
+  let closed;
+  try {
+    const statePath = stateFile(directory);
+    const script = "$stream = [IO.File]::Open($env:OMNI_FIXTURE_STATE, 'Open', 'Read', 'Read'); "
+      + "try { [Console]::WriteLine('locked'); [Console]::Out.Flush(); [Threading.Thread]::Sleep(250) } finally { $stream.Dispose() }";
+    reader = spawn(path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      { env: { ...process.env, OMNI_FIXTURE_STATE: statePath }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    closed = new Promise(resolve => reader.once('close', resolve));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('reader handshake timeout')), 5000);
+      reader.stdout.once('data', chunk => { clearTimeout(timer); String(chunk).includes('locked') ? resolve() : reject(new Error('reader handshake failed')); });
+      reader.once('error', error => { clearTimeout(timer); reject(error); });
+    });
+    writeState(statePath, 'Apply', operationId, 'Pending', { status: 'Succeeded' });
+    assert.equal(JSON.parse(fs.readFileSync(statePath, 'utf8')).status, 'Succeeded');
+  } finally {
+    if (reader && reader.exitCode === null) reader.kill();
+    if (closed) await closed;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const scenario of ['success', 'wrong-receipt', 'failed-smoke', 'active-helper']) {
+  test(`interrupted install verification: ${scenario}`, { skip: process.platform !== 'win32' }, () => {
+    const directory = tempDirectory();
+    try {
+      const archive = createArchive(directory);
+      const prefix = path.join(directory, 'prefix');
+      const packageDirectory = path.join(prefix, 'node_modules', 'omnicore-cli');
+      const statePath = path.join(directory, 'state.json');
+      const receiptPath = statePath + '.interrupted.tmp';
+      stateFile(directory, { status: 'Unknown', toVersion: expectedVersion, assetPath: archive,
+        expectedSha256: crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex'),
+        expectedSize: fs.statSync(archive).size, npmPrefix: prefix,
+        helperPid: scenario === 'active-helper' ? process.pid : deadPid,
+        detail: 'EPERM: rename ' + receiptPath });
+      const current = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      fs.writeFileSync(receiptPath, JSON.stringify({ ...current, status: 'Running', detail: 'verifying_installed_cli',
+        operationId: scenario === 'wrong-receipt' ? 'fedcba0987654321fedcba0987654321' : operationId }));
+      const seeded = spawnSync(process.execPath, ['-e', installFixtureSource({ packageDirectory,
+        smokeStatus: scenario === 'failed-smoke' ? 1 : 0 })], { encoding: 'utf8', timeout: 10000 });
+      assert.equal(seeded.status, 0, seeded.stderr);
+      const result = spawnSync(process.execPath, [helper, '--mode', 'verify-install', '--state', statePath,
+        '--receipt', receiptPath, '--operation-id', operationId, '--package-directory', packageDirectory,
+        '--node', process.execPath, '--yes', 'true'], { encoding: 'utf8', timeout: 30000 });
+      const final = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      assert.equal(final.operationId, operationId);
+      if (scenario === 'success') {
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(final.status, 'Succeeded');
+        assert.match(result.stdout, /update_verified_without_reinstall/);
+      } else {
+        assert.notEqual(result.status, 0);
+        assert.deepEqual(final, current);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
 }
 
 function installFixtureSource({ packageDirectory, version = expectedVersion, capture, npmStatus = 0,
