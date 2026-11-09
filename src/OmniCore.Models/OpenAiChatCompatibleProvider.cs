@@ -94,7 +94,7 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
         HttpClient http;
         try
         {
-            if (_options.LimitAutomaticLocalReasoning && _descriptor.BillingMode == BillingMode.Local
+            if ((_options.LimitAutomaticLocalReasoning || request.FinalAnswerOnly) && _descriptor.BillingMode == BillingMode.Local
                 && _descriptor.LocalHost is { Declared: true } && _descriptor.Profile is null
                 && request.Reasoning is null && request.Model.Reasoning is null
                 && _detectedLlamaCpp is null)
@@ -338,6 +338,13 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             && reasoning is { Kind: "off", BudgetTokens: null };
         if (reasoning is not null && !llamaCppReasoningOff)
             throw new NotSupportedException("Selected reasoning has no representation in this adapter.");
+        var capability = request.Model.Route?.ReasoningCapability;
+        var suppressAutomaticThinking = request.FinalAnswerOnly && reasoning is null
+            && _descriptor.BillingMode == BillingMode.Local && UsesLlamaCppDialect
+            && capability?.Supported != false
+            && (capability?.EffortLevels is not { } levels || levels.Contains("off"))
+            && request.Tools.Count == 0 && request.ToolChoice.Mode == "none";
+        var disableThinking = llamaCppReasoningOff || suppressAutomaticThinking;
         var messages = new List<ChatRequestMessage>();
         if (!string.IsNullOrEmpty(request.Instructions))
             messages.Add(new ChatRequestMessage { Role = "system", Content = JsonSerializer.SerializeToElement(wireNames.ToWireText(request.Instructions), OpenAiJsonContext.Default.String) });
@@ -401,8 +408,8 @@ public sealed class OpenAiChatCompatibleProvider : IModelProvider, IModelRequest
             StreamOptions = _descriptor.BillingMode == BillingMode.Local || _descriptor.LocalHost is not null
                 ? new ChatStreamOptions(true) : null,
             MaxTokens = request.Model.MaxOutputTokens,
-            ReasoningEffort = llamaCppReasoningOff ? "none" : null,
-            ChatTemplateKwargs = llamaCppReasoningOff
+            ReasoningEffort = disableThinking ? "none" : null,
+            ChatTemplateKwargs = disableThinking
                 ? new Dictionary<string, bool> { ["enable_thinking"] = false } : null,
             ToolChoice = request.ToolChoice.Mode switch
             {

@@ -10,6 +10,63 @@ using OmniCore.Models;
 public sealed class OpenAiChatCompatibleMediaSerializationTests
 {
     [Theory]
+    [InlineData("tools")]
+    [InlineData("auto-choice")]
+    [InlineData("unsupported")]
+    [InlineData("no-off-level")]
+    public void Final_answer_hint_does_not_override_tools_or_declared_capabilities(string scenario)
+    {
+        using var handler = new CaptureHandler();
+        var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
+            "http://127.0.0.1:9999/v1", AuthConfig.None(), false, false, true)
+            { BillingMode = BillingMode.Local, Profile = "llamaCpp" };
+        var capability = scenario == "unsupported" ? new ReasoningCapability(false)
+            : scenario == "no-off-level" ? new ReasoningCapability(true, ["high"]) : ReasoningCapability.Unknown;
+        var route = new ModelRoute("fixture", descriptor.BaseUrl, ProviderFamily.OpenAiChatCompatible,
+            "llamaCpp", "fixture-model", reasoningCapability: capability);
+        var provider = new OpenAiChatCompatibleProvider(descriptor, new NoSecrets(), () => new HttpClient(handler, false));
+        var request = new ModelRequest(new ModelSelection(new ModelIdValue("fixture-model"), 4096, ToolMode.Direct, null, route: route),
+            [new ModelMessage(MessageRole.User, [new TextBlock("Question")])], null,
+            scenario == "tools" ? [new ToolDefinition("fixture", "fixture", "{\"type\":\"object\"}")] : [],
+            scenario == "auto-choice" ? ToolChoice.Auto() : ToolChoice.None(), null, null, null, null)
+            { FinalAnswerOnly = true };
+        provider.Complete(request, TestContext.Current.CancellationToken);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.False(body.RootElement.TryGetProperty("chat_template_kwargs", out _));
+        Assert.False(body.RootElement.TryGetProperty("reasoning_effort", out _));
+    }
+
+    [Theory]
+    [InlineData("llama.cpp", true, BillingMode.Local, true)]
+    [InlineData("ik_llama.cpp", true, BillingMode.Local, true)]
+    [InlineData("vllm", true, BillingMode.Local, false)]
+    [InlineData("ik_llama.cpp", false, BillingMode.Local, false)]
+    [InlineData("ik_llama.cpp", true, BillingMode.MeteredCurrency, false)]
+    public void Final_answer_pass_disables_only_known_local_automatic_thinking(
+        string server, bool finalAnswer, BillingMode billing, bool disabled)
+    {
+        using var handler = new CaptureHandler(server: server);
+        var descriptor = new ProviderDescriptor("fixture", ProviderFamily.OpenAiChatCompatible,
+            "http://127.0.0.1:9999/v1", AuthConfig.None(), false, false, true)
+        { BillingMode = billing, LocalHost = new LocalHostConfig(LocalHostMode.Attach, Declared: true) };
+        var provider = new OpenAiChatCompatibleProvider(descriptor, new NoSecrets(), () => new HttpClient(handler, false));
+        var request = new ModelRequest(new ModelSelection(new ModelIdValue("fixture-model"), 4096, ToolMode.Direct, null),
+            [new ModelMessage(MessageRole.User, [new TextBlock("Question")])], null, [], ToolChoice.None(), null, null, null, null)
+            { FinalAnswerOnly = finalAnswer };
+        provider.Complete(request, TestContext.Current.CancellationToken);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(disabled, body.RootElement.TryGetProperty("chat_template_kwargs", out var kwargs));
+        if (disabled)
+        {
+            Assert.False(kwargs.GetProperty("enable_thinking").GetBoolean());
+            Assert.Equal("none", body.RootElement.GetProperty("reasoning_effort").GetString());
+        }
+        Assert.Null(request.Reasoning);
+        Assert.Null(request.Model.Reasoning);
+        Assert.False(body.RootElement.TryGetProperty("reasoning_budget_tokens", out _));
+    }
+
+    [Theory]
     [InlineData("llama.cpp", true)]
     [InlineData("ik_llama.cpp", true)]
     [InlineData("vllm", false)]

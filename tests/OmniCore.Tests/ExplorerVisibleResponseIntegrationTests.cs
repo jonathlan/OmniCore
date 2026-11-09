@@ -19,6 +19,7 @@ public sealed class ExplorerVisibleResponseIntegrationTests
     [InlineData("empty", "cli.runtime.turn.no_final_answer")]
     [InlineData("step-limit", "cli.runtime.turn.step_limit_without_answer")]
     [InlineData("recover", null)]
+    [InlineData("llama", null)]
     [InlineData("reserved", null)]
     [InlineData("unwanted-tool", "cli.runtime.turn.no_final_answer")]
     public void Local_harness_distinguishes_missing_answer_and_step_limit_and_finalizes_without_tools(string scenario, string? diagnostic)
@@ -42,8 +43,17 @@ public sealed class ExplorerVisibleResponseIntegrationTests
             var last = scenario == "unwanted-tool"
                 ? CompanionToolsTests.Response([new ToolCallBlock(ToolCallId.New(), "unwanted", "filesystem.list", "{\"path\":\".\"}")])
                 : CompanionToolsTests.Response([new TextBlock("Respuesta visible")]);
-            var allowsFinalPass = scenario is "recover" or "reserved" or "unwanted-tool";
-            var turn = new ExplorerTurn((request, _) => { requests.Add(request); return requests.Count == 1 ? first : last; },
+            var allowsFinalPass = scenario is "recover" or "llama" or "reserved" or "unwanted-tool";
+            using var handler = new ReasoningOnlyUntilFinalHandler();
+            var provider = new OpenAiChatCompatibleProvider(new ProviderDescriptor("fixture",
+                ProviderFamily.OpenAiChatCompatible, "http://127.0.0.1:9999/v1", AuthConfig.None(), false, false, true)
+                { BillingMode = BillingMode.Local, Profile = OpenAiChatCompatibleProvider.LlamaCppProfileName },
+                new NoFixtureSecrets(), () => new HttpClient(handler, false));
+            var turn = new ExplorerTurn((request, token) =>
+            {
+                requests.Add(request);
+                return scenario == "llama" ? provider.Complete(request, token) : requests.Count == 1 ? first : last;
+            },
                 executor, catalog, new ContextMaterializer(new FakeTokenCounter(), []),
                 new ExecutionFingerprint("fixture", "h", "t", "c", "o", "M10"),
                 new ModelSelection(new ModelIdValue("scripted"), 8192, ToolMode.Direct, null),
@@ -52,8 +62,10 @@ public sealed class ExplorerVisibleResponseIntegrationTests
             var result = turn.Ask("Resume el proyecto", "system", session, run.RunId, run.RootLane, "", TestContext.Current.CancellationToken);
             var events = store.ReadFrom(session, 1).Select(codecs.Decode).ToArray();
             Assert.Equal(allowsFinalPass ? 2 : 1, requests.Count);
+            Assert.False(requests[0].FinalAnswerOnly);
             if (allowsFinalPass)
             {
+                Assert.True(requests[1].FinalAnswerOnly);
                 Assert.Empty(requests[1].Tools);
                 Assert.Equal("none", requests[1].ToolChoice.Mode);
                 Assert.Contains("normal assistant response", requests[1].Instructions);
@@ -81,6 +93,35 @@ public sealed class ExplorerVisibleResponseIntegrationTests
             var connection = (SqliteConnection)store.Connection;
             store.Close(); SqliteConnection.ClearPool(connection); connection.Dispose();
             Directory.Delete(root, true);
+        }
+    }
+
+    private sealed class NoFixtureSecrets : ISecretProvider
+    {
+        public Secret GetSecret(string secretRef, CancellationToken cancellationToken) => Secret.Of("");
+    }
+
+    // Reproduces the wire contract of the reported failure: a clean stop with
+    // reasoning_content only, including on repeated text-only closing instructions.
+    private sealed class ReasoningOnlyUntilFinalHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            var final = body.RootElement.TryGetProperty("chat_template_kwargs", out var kwargs)
+                && !kwargs.GetProperty("enable_thinking").GetBoolean();
+            if (final)
+            {
+                Assert.False(body.RootElement.TryGetProperty("tools", out _));
+                Assert.Equal("none", body.RootElement.GetProperty("tool_choice").GetString());
+            }
+            var delta = final ? "\"content\":\"Respuesta visible\"" : "\"reasoning_content\":\"private fixture draft\"";
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("data: {\"choices\":[{\"delta\":{" + delta
+                    + "},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+                    System.Text.Encoding.UTF8, "text/event-stream"),
+            };
         }
     }
 

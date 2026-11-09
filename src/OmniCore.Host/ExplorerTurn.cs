@@ -1919,7 +1919,7 @@ public sealed class ExplorerTurn
                     // None is an explicit outbound replay prohibition. Keep the checkpoint
                     // and its integrity/usage evidence, but never resend it (including resume).
                     answerOnly || _selection.Route?.ReasoningCapability.ReplayPolicy == ReasoningReplayPolicy.None
-                        ? null : continuation);
+                        ? null : continuation) { FinalAnswerOnly = answerOnly };
 
                 ModelResponse resolved;
                 string? stepReservation = null;

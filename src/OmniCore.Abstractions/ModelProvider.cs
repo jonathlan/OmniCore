@@ -62,6 +62,10 @@ public sealed class ModelRequest
 
     public ProviderState? Continuation { get; }
 
+    /// <summary>Host-owned, tool-free final answer pass. Adapters may use a known
+    /// local dialect to suppress automatic thinking without changing user preferences.</summary>
+    public bool FinalAnswerOnly { get; init; }
+
     public ModelRequest(ModelSelection model, IReadOnlyList<ModelMessage> messages, string? instructions,
         IReadOnlyList<ToolDefinition> tools, ToolChoice toolChoice, OutputConstraint? output,
         ReasoningRequest? reasoning, CacheHints? cache, ProviderState? continuation)

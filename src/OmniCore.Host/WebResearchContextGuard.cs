@@ -91,7 +91,8 @@ public sealed class WebResearchContextGuard(IWebResearchStore? store = null, Tim
                 _ => block,
             }).Where(block => block is not null).Cast<ContentBlock>().ToArray())).ToArray();
         var safe = new ModelRequest(request.Model, messages, request.Instructions, request.Tools, request.ToolChoice,
-            request.Output, request.Reasoning, request.Cache, continuation: null);
+            request.Output, request.Reasoning, request.Cache, continuation: null)
+            { FinalAnswerOnly = request.FinalAnswerOnly };
         return new(safe, admittedBytes == 0 ? null : ordinal =>
         {
             var admitted = false;
