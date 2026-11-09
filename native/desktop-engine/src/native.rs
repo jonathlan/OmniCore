@@ -284,23 +284,26 @@ impl Drop for CaptureResources {
         }
     }
 }
-pub fn capture(data: &Value) -> Result<Value> {
+pub fn capture(data: &Value) -> Result<(image::DynamicImage, Value)> {
     unsafe {
         let h = data["hwnd"]
             .as_i64()
-            .ok_or_else(|| Error::new("INVALID_PARAMS", "Missing HWND."))?
+            .ok_or_else(|| Error::new("INVALID_PARAMS", "Falta el HWND."))?
             as Handle;
         validate_target(h)?;
         let requested = &data["bounds"];
         if IsWindow(h) == 0 || IsIconic(h) != 0 {
             return Err(Error::new(
                 "WINDOW_NOT_VISIBLE",
-                "Observe a visible non-minimized window.",
+                "Observa una ventana visible y restaurada.",
             ));
         }
         let physical = rect(h)?;
         if &bounds(physical) != requested {
-            return Err(Error::new("WINDOW_CHANGED", "Target geometry changed."));
+            return Err(Error::new(
+                "WINDOW_CHANGED",
+                "Cambió la geometría del destino.",
+            ));
         }
         let (width, height) = (
             physical.right - physical.left,
@@ -314,7 +317,7 @@ pub fn capture(data: &Value) -> Result<Value> {
         {
             return Err(Error::new(
                 "CAPTURE_TOO_LARGE",
-                "Capture exceeds pixel budget.",
+                "La captura supera el límite de píxeles.",
             ));
         }
         let mut resources = CaptureResources {
@@ -333,7 +336,10 @@ pub fn capture(data: &Value) -> Result<Value> {
             GetWindowDpiAwarenessContext(h)
         };
         if target == 0 || SetThreadDpiAwarenessContext(target) == 0 {
-            return Err(Error::new("DPI_ERROR", "Cannot select target DPI context."));
+            return Err(Error::new(
+                "DPI_ERROR",
+                "No se pudo seleccionar la escala DPI del destino.",
+            ));
         }
         let awareness = GetAwarenessFromDpiAwarenessContext(target);
         let logical = rect(h)?;
@@ -341,7 +347,7 @@ pub fn capture(data: &Value) -> Result<Value> {
         if w <= 0 || ht <= 0 || (w as u64 * ht as u64) > 40_000_000 {
             return Err(Error::new(
                 "CAPTURE_TOO_LARGE",
-                "Native capture exceeds pixel budget.",
+                "La captura nativa supera el límite de píxeles.",
             ));
         }
         resources.dc = if visible {
@@ -354,7 +360,7 @@ pub fn capture(data: &Value) -> Result<Value> {
         if resources.dc == 0 || resources.memory == 0 {
             return Err(Error::new(
                 "CAPTURE_FAILED",
-                "Cannot allocate capture context.",
+                "No se pudo reservar memoria para la captura.",
             ));
         }
         let info = BitmapInfo {
@@ -376,12 +382,18 @@ pub fn capture(data: &Value) -> Result<Value> {
         let mut pixels = null_mut();
         resources.bitmap = CreateDIBSection(resources.memory, &info, 0, &mut pixels, 0, 0);
         if resources.bitmap == 0 || pixels.is_null() {
-            return Err(Error::new("CAPTURE_FAILED", "Cannot allocate bitmap."));
+            return Err(Error::new(
+                "CAPTURE_FAILED",
+                "No se pudo reservar memoria para el mapa de bits.",
+            ));
         }
         resources.old = SelectObject(resources.memory, resources.bitmap);
         if resources.old == 0 || resources.old == -1 {
             resources.old = 0;
-            return Err(Error::new("CAPTURE_FAILED", "Cannot select bitmap."));
+            return Err(Error::new(
+                "CAPTURE_FAILED",
+                "No se pudo seleccionar el mapa de bits.",
+            ));
         }
         std::ptr::write_bytes(pixels as *mut u8, 0, (w * ht * 4) as usize);
         let rendered = if visible {
@@ -409,7 +421,7 @@ pub fn capture(data: &Value) -> Result<Value> {
         if IsWindow(h) == 0 || IsIconic(h) != 0 || rect(h)? != physical {
             return Err(Error::new(
                 "WINDOW_CHANGED",
-                "Target changed during capture.",
+                "El destino cambió durante la captura.",
             ));
         }
         let raw = std::slice::from_raw_parts(pixels as *const u8, (w * ht * 4) as usize);
@@ -418,7 +430,7 @@ pub fn capture(data: &Value) -> Result<Value> {
             rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
         }
         let image = image::RgbImage::from_raw(w as u32, ht as u32, rgb)
-            .ok_or_else(|| Error::new("CAPTURE_FAILED", "Invalid bitmap."))?;
+            .ok_or_else(|| Error::new("CAPTURE_FAILED", "El mapa de bits es inválido."))?;
         let scaled = (w, ht) != (width, height);
         let image = if scaled {
             image::imageops::resize(
@@ -430,25 +442,12 @@ pub fn capture(data: &Value) -> Result<Value> {
         } else {
             image
         };
-        let black = image.as_raw().iter().all(|b| *b == 0);
-        let mut encoded = std::io::Cursor::new(Vec::new());
-        image
-            .write_to(&mut encoded, image::ImageFormat::Png)
-            .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot encode PNG."))?;
-        if encoded.get_ref().len() > 8 * 1024 * 1024 {
-            return Err(Error::new(
-                "IMAGE_TOO_LARGE",
-                "PNG exceeds inline image budget.",
-            ));
-        }
-        let path = data["output_path"]
-            .as_str()
-            .ok_or_else(|| Error::new("INVALID_PARAMS", "Missing output path."))?;
-        std::fs::write(path, encoded.get_ref())
-            .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot save PNG."))?;
-        Ok(
-            json!({"width":width,"height":height,"bounds":bounds(physical),"capture_scope":"window","window_id":format!("0x{h:x}"),"path":path,"backend":if visible{"screen_gdi"}else{"printwindow"},"occlusion_sensitive":visible,"native_capture_size":{"width":w,"height":ht},"scaled_for_dpi":scaled,"target_dpi_awareness":awareness,"all_black":black,"warnings":if black{vec!["Capture is black; rendering may be unsupported or protected."]}else{vec![]}}),
-        )
+        Ok((
+            image::DynamicImage::ImageRgb8(image),
+            json!({"bounds":bounds(physical),"backend":if visible{"screen_gdi"}else{"printwindow"},
+                "occlusion_sensitive":visible,"native_capture_size":{"width":w,"height":ht},
+                "scaled_for_dpi":scaled,"target_dpi_awareness":awareness}),
+        ))
     }
 }
 

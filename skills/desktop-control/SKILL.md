@@ -40,11 +40,19 @@ Call with `{"operation":"<name>","arguments":{...}}`.
    - **Accessibility:** `include_text: true` is the default when no image is
      requested. Use `max_elements` (1–500) to bound the tree. Password UIA fields
      are redacted.
+     For forms, use `find: {"name":"City","control_type":"ComboBox","within":{"name":"Shipping","control_type":"Group"}}`.
+     Add `enabled: true` and `wait_ms` (up to 5000) inside `find` if a prior action
+     may enable the field. Act only on a unique `matched: true` result. `include_bounds: true`
+     inside `find` returns physical bounds relative to the window, and `include_value: true`
+     returns a bounded value when the provider exposes one. Wait without screenshots.
    - **Vision:** when the tool description says the current route accepts screenshots,
      request `include_screenshot: true`. Add `include_text: true` to combine the two.
      The tool returns a PNG image block with an observation and screenshot ID.
      Use `image_scale` (0.1–1) if useful. Capture uses `wgc` by default, or explicitly
      choose `capture_backend: "printwindow"`. Screenshots can contain private data.
+     To inspect a small region, pass `screenshot_region: {"x":20,"y":40,"width":180,"height":60}`
+     with `include_screenshot: true`. Cropping happens before any scaling, using window-relative
+     physical pixels. Use the returned `screenshot_id` for image-relative clicks.
    - **Menu:** request `menu: {"path":["Mantenimientos"],"max_depth":4,"max_items":100}`
      separately from accessibility or capture. Read-only inventory never opens
      the menu or sends a command. Use `{"name":"Reto90","occurrence":2}` in the path
@@ -65,7 +73,11 @@ Call with `{"operation":"<name>","arguments":{...}}`.
    - `invoke`: `element_index` activates UIA InvokePattern without a mouse click.
    - `set_value`: `element_index`, `value` (up to 4096 characters) updates an
      editable ValuePattern. Password/unknown-password and read-only fields are excluded.
-     Both semantic actions require a current accessibility observation and foreground.
+   - `select_option`: `element_index` of an observed `ComboBox` or `List` and `option`
+     with the exact label. The engine can select offscreen entries when exposed by UIA.
+     If the option was not exposed, observe again before choosing a bounded scroll step.
+     Verify the selected value with a fresh observation. These semantic actions require
+     a current accessibility observation and the target in the foreground.
 5. Refresh state after EVERY action. Observations expire after 30 seconds and
    cannot be reused after input or focus activation. Coordinates are physical
    pixels relative to the observed window's top-left, never desktop coordinates.

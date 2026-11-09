@@ -68,7 +68,19 @@ MCP ni rutas de fuentes en el equipo de destino. WGC es predeterminado y PrintWi
 se elige explícitamente. Se incorporan `image_scale`, `invoke`, `set_value`, texto
 seleccionado, rueda horizontal y más alias de teclado. Véase el README del núcleo.
 
-## Foco, menús y captura en 0.7.14
+## Formularios y recortes en 0.7.15
+
+Usa `get_window_state` con `find` para buscar un campo por nombre y tipo dentro
+de `within`. La búsqueda devuelve los índices de la observación, puede esperar
+un campo habilitado y marca resultados ambiguos o incompletos. `select_option`
+selecciona una etiqueta exacta dentro de un ComboBox o List observado, incluso
+fuera de vista cuando el proveedor UIA la expone. Verifica el valor después.
+
+`screenshot_region` recorta en píxeles físicos relativos a la ventana antes de
+aplicar `image_scale`. Requiere `include_screenshot: true` y una ruta con visión.
+El `screenshot_id` conserva el origen del recorte para mapear las coordenadas.
+
+## Foco, menús y captura
 
 Usa `activate_window` con la ventana descubierta y `fallback: "task_switcher"`
 cuando la tarea autorice cambiar el foco. Se intenta la activación directa y,

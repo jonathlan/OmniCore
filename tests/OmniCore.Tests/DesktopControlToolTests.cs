@@ -85,6 +85,7 @@ public sealed class DesktopControlToolTests
     [InlineData("type_text", EffectClass.NonIdempotent)]
     [InlineData("invoke", EffectClass.NonIdempotent)]
     [InlineData("set_value", EffectClass.NonIdempotent)]
+    [InlineData("select_option", EffectClass.NonIdempotent)]
     public void Effects_are_classified_without_io(string operation, EffectClass expected)
     {
         using var f = new Fixture(); f.Activate(); using var tool = new DesktopControlTool(f.Gate);
@@ -118,6 +119,11 @@ public sealed class DesktopControlToolTests
         if (supportsVision) Assert.IsType<Prepared>(screenshot);
         else Assert.IsType<PreparationRejected>(screenshot);
         Assert.IsType<Prepared>(Prepare("""{"include_text":true}"""));
+        Assert.IsType<Prepared>(Prepare("""{"find":{"name":"City","enabled":true,"wait_ms":5000}}"""));
+        Assert.IsType<PreparationRejected>(Prepare("""{"screenshot_region":{"x":0,"y":0,"width":80,"height":40}}"""));
+        var crop = Prepare("""{"include_screenshot":true,"screenshot_region":{"x":0,"y":0,"width":80,"height":40}}""");
+        if (supportsVision) Assert.IsType<Prepared>(crop);
+        else Assert.IsType<PreparationRejected>(crop);
         var menu = Assert.IsType<Prepared>(Prepare("""{"menu":{"path":["Archivo"]}}"""));
         Assert.Equal(EffectClass.None, menu.Intent.Effect);
         Assert.IsType<PreparationRejected>(Prepare("""{"include_screenshot":false,"include_screenshot":true}"""));

@@ -2,7 +2,7 @@
 
 ### Agentes de IA para conversar, programar y operar ventanas con permisos explícitos.
 
-[![CI de Main](https://github.com/juancgomezm-s/OmniCore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juancgomezm-s/OmniCore/actions/workflows/ci.yml)
+[Validación local](docs/local-validation.md)
 
 ## Instalación directa desde GitHub
 
@@ -24,7 +24,7 @@ repositorio, Git, el SDK de .NET ni Rust. Actualmente la entrega publicada es pr
 **npm — alternativa si ya tienes Node.js 20+ con npm y el runtime .NET 10 x64:**
 
 ```powershell
-npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.22/omnicore-cli-0.1.1-rc.22-win-x64.tgz
+npm.cmd install --global --ignore-scripts https://github.com/juancgomezm-s/OmniCore/releases/download/v0.1.1-rc.23/omnicore-cli-0.1.1-rc.23-win-x64.tgz
 ```
 
 Después puedes abrir la aplicación con **`omni.cmd`**, en la misma terminal.
@@ -32,7 +32,7 @@ El instalador PowerShell verifica hashes y firmas de las dependencias, las
 attestations del paquete de OmniCore y guarda la carpeta del comando en el `PATH`
 del usuario para los siguientes inicios. La alternativa npm usa el archivo de una
 versión concreta y requiere las dependencias instaladas. Para elegir una versión o un destino en PowerShell, añade
-`-Version 0.1.1-rc.22` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
+`-Version 0.1.1-rc.23` o `-Prefix 'C:\Mis aplicaciones\OmniCore'` al primer comando.
 El canal estable se selecciona con `-Channel Stable` cuando haya una release estable publicada.
 
 **Para actualizar, sólo ejecuta:**
@@ -330,7 +330,8 @@ funciones declaradas no significan que haya sólo 11 operaciones accesibles por 
 
 ## Compatibilidad y validación
 
-La CI comprueba el runtime y los paquetes en Windows y Linux. OmniDesktop Control
+El [ejecutor local](docs/local-validation.md) comprueba el runtime en la plataforma
+donde se ejecuta. OmniDesktop Control
 requiere Windows x64 y una sesión interactiva. Las capacidades disponibles dependen
 del sistema, el proveedor y la configuración; la [documentación de arquitectura](docs/architecture/arquitectura.md)
 y las evidencias enlazadas detallan sus límites. Las pruebas con fixtures se distinguen
@@ -362,6 +363,11 @@ permisos del turno. Para recibir una captura como imagen, el modelo debe admitir
 entrada de imágenes y herramientas nativas en la ruta seleccionada. En un modelo
 configurado manualmente, declara `inputModalities: [text, image]` en `models.yaml`
 si el servidor confirma que acepta imágenes.
+
+Desde la versión 0.7.15, `find` acota la búsqueda de un campo al grupo del
+formulario y puede esperar a que el campo se habilite. `select_option` busca la
+etiqueta exacta dentro de la lista observada. Las rutas con visión también pueden
+recibir un recorte en píxeles físicos de la ventana, a resolución original o reducida.
 
 Los paquetes Windows ya incluyen el ejecutable. Para compilar desde fuentes se
 requieren Rust estable (CI: 1.99.1), MSVC y Windows SDK: ejecuta
@@ -433,7 +439,7 @@ Landlock, y credenciales mediante `libsecret-1-0` y un Secret Service desbloquea
 (por ejemplo `gnome-keyring`). Al construir desde fuente necesita también un
 compilador C, incluido en `build-essential`. Sin esos componentes, las operaciones
 que los requieren fallan explícitamente. La [validación y los límites de esta
-candidata](docs/validation/m1-m8-closure-20261029.md) se acreditan por revisión; consulta también la CI de Main enlazada arriba.
+candidata](docs/validation/m1-m8-closure-20261029.md) se acreditan por revisión.
 
 ```bash
 git clone https://github.com/juancgomezm-s/OmniCore.git

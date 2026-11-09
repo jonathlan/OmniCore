@@ -428,7 +428,11 @@ impl Server {
             ));
         }
         if let Some(menu) = p.get("menu") {
-            if boolean(p, "include_screenshot", false)? || boolean(p, "include_text", false)? {
+            if boolean(p, "include_screenshot", false)?
+                || boolean(p, "include_text", false)?
+                || p.get("find").is_some()
+                || p.get("screenshot_region").is_some()
+            {
                 return Err(Error::new(
                     "INVALID_PARAMS",
                     "Read the menu separately from screenshot or text.",
@@ -449,10 +453,47 @@ impl Server {
             }
             return Ok(json!({"window":w,"menu":inventory}));
         }
-        self.observe(h, w, p)
+        let Some(find) = p.get("find") else {
+            return self.observe(h, w, p);
+        };
+        let wait_ms = crate::forms::validate(find)?;
+        let image = boolean(p, "include_screenshot", false)?;
+        if !boolean(p, "include_text", true)? || (wait_ms > 0 && image) {
+            return Err(Error::new(
+                "INVALID_PARAMS",
+                "find requiere accesibilidad. Para esperar, solicita el recorte después.",
+            ));
+        }
+        let mut params = p.clone();
+        params["include_text"] = json!(true);
+        if params.get("max_elements").is_none() {
+            params["max_elements"] = json!(500);
+        }
+        let started = Instant::now();
+        let budget = Duration::from_millis(wait_ms);
+        loop {
+            crate::indicator::check()?;
+            let mut state = self.observe(h, w.clone(), &params)?;
+            crate::forms::project(&mut state, find);
+            if wait_ms == 0 || state["matched"] == true || started.elapsed() >= budget {
+                if wait_ms > 0 {
+                    state["waited_ms"] = json!(started.elapsed().as_millis());
+                }
+                return Ok(state);
+            }
+            std::thread::sleep(
+                Duration::from_millis(100).min(budget.saturating_sub(started.elapsed())),
+            );
+        }
     }
     fn observe(&mut self, h: isize, w: Value, p: &Value) -> Result<Value> {
         let image = boolean(p, "include_screenshot", false)?;
+        if !image && p.get("screenshot_region").is_some() {
+            return Err(Error::new(
+                "INVALID_PARAMS",
+                "screenshot_region requiere include_screenshot: true.",
+            ));
+        }
         let ttl = self.ttl;
         let text = boolean(p, "include_text", !image)?;
         if !image && !text {
@@ -471,10 +512,14 @@ impl Server {
         let result = (|| {
             let mut shots = Vec::new();
             if image {
-                let mut metadata = worker(
-                    "capture",
-                    json!({"hwnd":h,"bounds":w["bounds"],"output_path":path,"visible_pixels_allowed":self.visible_pixels_allowed,"capture_backend":p.get("capture_backend").cloned().unwrap_or(json!("wgc")),"image_scale":p.get("image_scale").cloned().unwrap_or(json!(1.0))}),
-                )?;
+                let mut capture = json!({"hwnd":h,"bounds":w["bounds"],"output_path":path,
+                    "visible_pixels_allowed":self.visible_pixels_allowed,
+                    "capture_backend":p.get("capture_backend").cloned().unwrap_or(json!("wgc")),
+                    "image_scale":p.get("image_scale").cloned().unwrap_or(json!(1.0))});
+                if let Some(region) = p.get("screenshot_region") {
+                    capture["screenshot_region"] = region.clone();
+                }
+                let mut metadata = worker("capture", capture)?;
                 let bytes = std::fs::read(&path)
                     .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot read capture."))?;
                 if bytes.len() > 8 * 1024 * 1024 {
@@ -601,7 +646,7 @@ impl Server {
         crate::indicator::check()?;
         match method {
             "capabilities" => Ok(
-                json!({"protocol":"ndjson-v2-independent","implementation":"rust","product":"OmniDesktop Control","input_enabled":self.allow_input,"activation_fallback":"task_switcher","task_switcher_ocr":self.switcher_ocr,"observation_ttl_seconds":self.ttl,"capture_backend":"wgc","capture_backends":["wgc","printwindow"],"engine_version":env!("CARGO_PKG_VERSION"),"capture_scope":"window-only","activity_indicator":"purple-curtain","cancellation":["button","Escape"],"accessibility_backend":"Microsoft UI Automation","input_backend":"SendInput","methods":["list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value"]}),
+                json!({"protocol":"ndjson-v2-independent","implementation":"rust","product":"OmniDesktop Control","input_enabled":self.allow_input,"activation_fallback":"task_switcher","task_switcher_ocr":self.switcher_ocr,"observation_ttl_seconds":self.ttl,"capture_backend":"wgc","capture_backends":["wgc","printwindow"],"engine_version":env!("CARGO_PKG_VERSION"),"capture_scope":"window-only","activity_indicator":"purple-curtain","cancellation":["button","Escape"],"accessibility_backend":"Microsoft UI Automation","input_backend":"SendInput","compact_find":true,"screenshot_region":true,"methods":["list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value","select_option"]}),
             ),
             "list_windows" => {
                 let hidden = boolean(p, "include_hidden", false)?;
@@ -758,7 +803,7 @@ impl Server {
                 self.invalidate(w["id"].as_str().unwrap());
                 Ok(json!({"performed":method,"details":result}))
             }
-            "invoke" | "set_value" => {
+            "invoke" | "set_value" | "select_option" => {
                 let (h, w, o) = self.observed(p)?;
                 let index = integer(p, "element_index", -1, 0, 499)?;
                 let element = o.accessibility["elements"]
@@ -772,7 +817,9 @@ impl Server {
                     })?;
                 let result = worker(
                     "uia_action",
-                    json!({"hwnd":h,"identity":native::identity(&w)?,"element":element,"operation":method,"value":p.get("value"),"allow_owned_popups":self.allow_owned_popups,"refresh_expired":o.created.elapsed().as_secs_f64()>o.ttl}),
+                    json!({"hwnd":h,"identity":native::identity(&w)?,"element":element,"operation":method,
+                        "value":p.get("value"),"option":p.get("option"),"allow_owned_popups":self.allow_owned_popups,
+                        "refresh_expired":o.created.elapsed().as_secs_f64()>o.ttl}),
                 );
                 self.invalidate(w["id"].as_str().unwrap());
                 Ok(

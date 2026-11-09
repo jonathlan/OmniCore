@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][string]$Tag,
     [Parameter(Mandatory = $true)][string]$CommitSha,
-    [Parameter(Mandatory = $true)][string]$OutputDirectory
+    [Parameter(Mandatory = $true)][string]$OutputDirectory,
+    [switch]$SkipNativeTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,7 +105,7 @@ if ($ghLicenseSha256 -cne '8999137010582da29456c10e0a628bf3fa7ead05ab3ae5f424ad2
     throw 'The pinned GitHub CLI license digest did not match.'
 }
 
-& (Join-Path $root 'native/desktop-control/build.ps1')
+& (Join-Path $root 'native/desktop-control/build.ps1') -SkipTests:$SkipNativeTests
 if ($LASTEXITCODE -ne 0) { throw 'Native desktop build failed.' }
 
 & dotnet publish (Join-Path $root 'src/OmniCore.Cli/OmniCore.Cli.csproj') `

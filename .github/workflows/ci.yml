@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Local validation is the default. Remote runs require an explicit user request.
   workflow_dispatch:
 
 permissions:

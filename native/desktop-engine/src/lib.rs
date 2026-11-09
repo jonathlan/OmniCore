@@ -1,6 +1,8 @@
 mod accessibility;
 mod capture;
 pub mod capture_wgc;
+mod choices;
+mod forms;
 mod indicator;
 mod input;
 pub use input::{TaskSwitcherAction, task_switcher_input};

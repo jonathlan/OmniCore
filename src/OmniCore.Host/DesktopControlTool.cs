@@ -47,10 +47,10 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
 {
     internal const string Id = "desktop.control";
     private const string Schema = """
-        {"type":"object","properties":{"operation":{"type":"string","enum":["capabilities","list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value"]},"arguments":{"type":"object"}},"required":["operation","arguments"],"additionalProperties":false}
+        {"type":"object","properties":{"operation":{"type":"string","enum":["capabilities","list_windows","get_window","activate_window","get_window_state","click","scroll","drag","type_text","press_key","invoke","set_value","select_option"]},"arguments":{"type":"object"}},"required":["operation","arguments"],"additionalProperties":false}
         """;
     private static readonly HashSet<string> Observations = ["capabilities", "list_windows", "get_window", "get_window_state"];
-    private static readonly HashSet<string> Operations = [.. Observations, "activate_window", "click", "scroll", "drag", "type_text", "press_key", "invoke", "set_value"];
+    private static readonly HashSet<string> Operations = [.. Observations, "activate_window", "click", "scroll", "drag", "type_text", "press_key", "invoke", "set_value", "select_option"];
     private readonly SemaphoreSlim _serial = new(1, 1);
     private Process? _process;
     private bool _faulted;
@@ -85,6 +85,8 @@ internal sealed class DesktopControlTool(DesktopSkillGate gate, Action? cancelDe
                     return new PreparationRejected("Set include_screenshot once, using a boolean.", null);
                 if (!supportsVision && RequestsScreenshot(operation, args))
                     return new PreparationRejected("The current model route cannot receive screenshots. Use include_text: true or menu.", null);
+                if (args.TryGetProperty("screenshot_region", out _) && !RequestsScreenshot(operation, args))
+                    return new PreparationRejected("A screenshot_region requires include_screenshot: true.", null);
             }
             return new Prepared(new ToolIntent(call.ToolCallId, call.ToolId, root.GetRawText(),
                 Observations.Contains(operation) ? EffectClass.None : EffectClass.NonIdempotent,

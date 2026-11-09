@@ -6,7 +6,6 @@
 //! workers until it exits, avoiding an unbounded queue of background captures.
 use anyhow::{Context, Result, anyhow, bail};
 use std::{
-    io::Cursor,
     mem::size_of,
     sync::{
         Arc,
@@ -52,11 +51,9 @@ use windows::{
 
 /// Pixel geometry is checked against physical DWM extended frame bounds.
 pub struct Capture {
-    pub png: Vec<u8>,
+    pub image: image::RgbaImage,
     pub origin_x: i32,
     pub origin_y: i32,
-    pub width: u32,
-    pub height: u32,
 }
 
 /// WGC's free-threaded callbacks can outlive Close/RoUninitialize briefly.
@@ -74,20 +71,20 @@ fn pin_capture_runtime() -> Result<()> {
         let mut system = [0u16; 32768];
         let length = GetSystemDirectoryW(system.as_mut_ptr(), system.len() as u32) as usize;
         if length == 0 || length >= system.len() {
-            bail!("WGC system directory unavailable");
+            bail!("El directorio del sistema para WGC no está disponible.");
         }
         let mut path = system[..length].to_vec();
         path.extend("\\GraphicsCapture.dll".encode_utf16());
         path.push(0);
         let loaded = LoadLibraryExW(path.as_ptr(), 0, 0x800); // LOAD_LIBRARY_SEARCH_SYSTEM32
         if loaded == 0 {
-            bail!("WGC system runtime could not be loaded");
+            bail!("No se pudo cargar el runtime de WGC.");
         }
         let mut pinned = 0;
         let ok = GetModuleHandleExW(1, path.as_ptr(), &mut pinned); // GET_MODULE_HANDLE_EX_FLAG_PIN
         FreeLibrary(loaded);
         if ok == 0 || pinned == 0 {
-            bail!("WGC runtime lifetime could not be secured");
+            bail!("No se pudo retener el runtime de WGC.");
         }
     }
     Ok(())
@@ -136,7 +133,7 @@ impl Drop for Mapped<'_> {
 /// The system's normal capture border remains enabled; it is not suppressed.
 pub fn capture(hwnd: usize) -> Result<Capture> {
     if hwnd == 0 || hwnd > isize::MAX as usize {
-        bail!("invalid HWND");
+        bail!("HWND inválido.");
     }
     IN_FLIGHT
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -153,7 +150,7 @@ pub fn capture(hwnd: usize) -> Result<Capture> {
             let result = capture_worker(hwnd, deadline, &worker_cancelled);
             let _ = tx.send(result);
         })
-        .context("could not spawn WGC worker")?;
+        .context("No se pudo iniciar el proceso de WGC.")?;
     match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(result) => result,
         Err(error) => {
@@ -167,38 +164,35 @@ pub fn capture(hwnd: usize) -> Result<Capture> {
 
 fn check_deadline(deadline: Instant, cancelled: &AtomicBool) -> Result<()> {
     if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
-        bail!("wgc_timeout: capture exceeded its three-second deadline");
+        bail!("wgc_timeout: la captura superó tres segundos");
     }
     Ok(())
 }
 
 fn capture_worker(hwnd: usize, deadline: Instant, cancelled: &AtomicBool) -> Result<Capture> {
     pin_capture_runtime()?;
-    unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.context("WGC WinRT initialization failed")?;
+    unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.context("Falló el inicio de WinRT para WGC.")?;
     let _apartment = Apartment;
     let previous =
         unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     if previous.0.is_null() {
-        bail!("could not configure physical coordinates for WGC");
+        bail!("No se pudieron configurar las coordenadas físicas para WGC.");
     }
     check_deadline(deadline, cancelled)?;
-    if !GraphicsCaptureSession::IsSupported().context("WGC capability query failed")? {
-        bail!("wgc_unsupported: Windows.Graphics.Capture is not supported");
+    if !GraphicsCaptureSession::IsSupported()
+        .context("No se pudo consultar la disponibilidad de WGC.")?
+    {
+        bail!("wgc_unsupported: Windows.Graphics.Capture no está disponible");
     }
     // The D3D/WinRT capture objects below are all released before PNG encoding.
     let (pixels, bounds, width, height) = read_pixels(hwnd, deadline, cancelled)?;
     check_deadline(deadline, cancelled)?;
-    let image =
-        image::RgbaImage::from_raw(width, height, pixels).context("invalid WGC image buffer")?;
-    let mut png = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(image).write_to(&mut png, image::ImageFormat::Png)?;
-    check_deadline(deadline, cancelled)?;
+    let image = image::RgbaImage::from_raw(width, height, pixels)
+        .context("Búfer de imagen WGC inválido.")?;
     Ok(Capture {
-        png: png.into_inner(),
+        image,
         origin_x: bounds.left,
         origin_y: bounds.top,
-        width,
-        height,
     })
 }
 
@@ -208,11 +202,11 @@ fn window_bounds(hwnd: HWND) -> Result<(RECT, u32)> {
             bail!("invalid_window");
         }
         if IsIconic(hwnd).as_bool() {
-            bail!("window_minimized: WGC requires a non-minimized window");
+            bail!("window_minimized: WGC requiere una ventana restaurada");
         }
         let mut process_id = 0;
         if GetWindowThreadProcessId(hwnd, Some(&mut process_id)) == 0 || process_id == 0 {
-            bail!("could not identify WGC target process");
+            bail!("No se pudo identificar el proceso de la ventana para WGC.");
         }
         let mut bounds = RECT::default();
         DwmGetWindowAttribute(
@@ -221,7 +215,7 @@ fn window_bounds(hwnd: HWND) -> Result<(RECT, u32)> {
             (&mut bounds as *mut RECT).cast(),
             size_of::<RECT>() as u32,
         )
-        .context("DWM extended frame bounds unavailable; WGC geometry cannot be established")?;
+        .context("DWM no proporcionó la geometría del marco para WGC.")?;
         validate_dimensions(bounds.right - bounds.left, bounds.bottom - bounds.top)?;
         Ok((bounds, process_id))
     }
@@ -229,7 +223,7 @@ fn window_bounds(hwnd: HWND) -> Result<(RECT, u32)> {
 
 fn validate_dimensions(width: i32, height: i32) -> Result<(u32, u32)> {
     if width <= 0 || height <= 0 || width as u64 * height as u64 > 20_000_000 {
-        bail!("invalid or oversized WGC dimensions: {width}x{height}");
+        bail!("Dimensiones inválidas o excesivas para WGC ({width}x{height})");
     }
     Ok((width as u32, height as u32))
 }
@@ -249,8 +243,8 @@ fn device(driver: D3D_DRIVER_TYPE) -> Result<(ID3D11Device, ID3D11DeviceContext)
             Some(&mut context),
         )?;
         Ok((
-            device.context("D3D11 device missing")?,
-            context.context("D3D11 context missing")?,
+            device.context("Falta el dispositivo D3D11.")?,
+            context.context("Falta el contexto D3D11.")?,
         ))
     }
 }
@@ -266,7 +260,7 @@ fn read_pixels(
         validate_dimensions(bounds.right - bounds.left, bounds.bottom - bounds.top)?;
     let interop: IGraphicsCaptureItemInterop = windows::core::factory::<GraphicsCaptureItem, _>()?;
     let item: GraphicsCaptureItem =
-        unsafe { interop.CreateForWindow(hwnd) }.context("WGC CreateForWindow failed")?;
+        unsafe { interop.CreateForWindow(hwnd) }.context("Falló CreateForWindow en WGC.")?;
     let item_size = item.Size()?;
     let (item_width, item_height) = validate_dimensions(item_size.Width, item_size.Height)?;
     if (item_width, item_height) != (expected_width, expected_height) {
@@ -303,7 +297,7 @@ fn read_pixels(
     resources
         .session
         .StartCapture()
-        .context("WGC StartCapture failed")?;
+        .context("Falló StartCapture en WGC.")?;
     let frame = loop {
         check_deadline(deadline, cancelled)?;
         match resources.pool.TryGetNextFrame() {
@@ -314,7 +308,7 @@ fn read_pixels(
             {
                 thread::sleep(Duration::from_millis(8));
             }
-            Err(error) => return Err(error).context("WGC frame acquisition failed"),
+            Err(error) => return Err(error).context("No se pudo obtener el fotograma de WGC."),
         }
     };
     let size = frame.0.ContentSize()?;
@@ -333,7 +327,7 @@ fn read_pixels(
         || description.Height < height
         || description.SampleDesc.Count != 1
     {
-        bail!("unsupported WGC texture format, dimensions, or multisampling");
+        bail!("Formato, dimensiones o muestreo de textura incompatibles con WGC.");
     }
     description.Usage = D3D11_USAGE_STAGING;
     description.BindFlags = 0;
@@ -341,7 +335,7 @@ fn read_pixels(
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
     let mut staging = None;
     unsafe { native_device.CreateTexture2D(&description, None, Some(&mut staging)) }?;
-    let staging = staging.context("D3D11 staging texture missing")?;
+    let staging = staging.context("Falta la textura temporal de D3D11.")?;
     unsafe {
         context.CopyResource(&staging, &texture);
         context.Flush();
@@ -362,7 +356,9 @@ fn read_pixels(
             Err(error) if error.code() == DXGI_ERROR_WAS_STILL_DRAWING => {
                 thread::sleep(Duration::from_millis(3));
             }
-            Err(error) => return Err(error).context("D3D11 staging readback failed"),
+            Err(error) => {
+                return Err(error).context("No se pudo leer la textura temporal de D3D11.");
+            }
         }
     }
     let mapped_guard = Mapped {
@@ -370,7 +366,7 @@ fn read_pixels(
         texture: &staging,
     };
     if mapped.pData.is_null() || mapped.RowPitch < width * 4 {
-        bail!("invalid WGC mapped texture pitch or pointer");
+        bail!("El puntero o la longitud de fila de la textura WGC son inválidos.");
     }
     let mut rgba = vec![0_u8; width as usize * height as usize * 4];
     for row in 0..height as usize {
@@ -387,14 +383,14 @@ fn read_pixels(
     drop(mapped_guard);
     let (after, after_pid) = window_bounds(hwnd)?;
     if process_id != after_pid || bounds != after {
-        bail!("window_changed_during_capture: target identity or DWM bounds changed");
+        bail!("window_changed_during_capture: cambió la identidad o la geometría DWM");
     }
     Ok((rgba, bounds, width, height))
 }
 
 fn bgra_to_rgba(source: &[u8], destination: &mut [u8]) -> Result<()> {
     if source.len() != destination.len() || !source.len().is_multiple_of(4) {
-        bail!("invalid BGRA row length");
+        bail!("Longitud de fila BGRA inválida.");
     }
     for (pixel, output) in source
         .as_chunks::<4>()

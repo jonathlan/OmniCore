@@ -1,10 +1,12 @@
-param([string]$Cargo = 'cargo', [string]$OcrRuntime = $env:OMNICORE_DESKTOP_OCR_RUNTIME)
+param([string]$Cargo = 'cargo', [string]$OcrRuntime = $env:OMNICORE_DESKTOP_OCR_RUNTIME, [switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 $manifest = Join-Path $PSScriptRoot 'Cargo.toml'
-& $Cargo test --locked --manifest-path (Join-Path $PSScriptRoot "../desktop-engine/Cargo.toml") --target-dir (Join-Path $PSScriptRoot "target")
-if ($LASTEXITCODE -ne 0) { throw "Shared Rust engine tests failed." }
-& $Cargo test --locked --manifest-path $manifest
-if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }
+if (!$SkipTests) {
+    & $Cargo test --locked --manifest-path (Join-Path $PSScriptRoot "../desktop-engine/Cargo.toml") --target-dir (Join-Path $PSScriptRoot "target")
+    if ($LASTEXITCODE -ne 0) { throw 'Shared Rust engine tests failed.' }
+    & $Cargo test --locked --manifest-path $manifest
+    if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }
+}
 & $Cargo build --release --locked --manifest-path $manifest
 if ($LASTEXITCODE -ne 0) { throw 'Rust build failed.' }
 $executable = Join-Path $PSScriptRoot 'target/release/omnicore-desktop.exe'

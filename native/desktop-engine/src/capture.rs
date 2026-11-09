@@ -15,7 +15,7 @@ pub fn map_coordinate(frame: &Value, value: i64, horizontal: bool) -> Result<i64
     if size <= 0 || physical <= 0 || value < 0 || value >= size {
         return Err(Error::new(
             "OUTSIDE_TARGET",
-            "Point lies outside the observed image.",
+            "El punto queda fuera de la imagen observada.",
         ));
     }
     Ok(frame[origin].as_i64().unwrap_or(0) + value * physical / size)
@@ -24,32 +24,35 @@ pub fn map_coordinate(frame: &Value, value: i64, horizontal: bool) -> Result<i64
 pub fn capture(data: &Value) -> Result<Value> {
     let hwnd = data["hwnd"]
         .as_i64()
-        .ok_or_else(|| Error::new("INVALID_PARAMS", "Missing HWND."))? as isize;
+        .ok_or_else(|| Error::new("INVALID_PARAMS", "Falta el HWND."))? as isize;
     native::validate_target(hwnd)?;
     if native::bounds(native::rect(hwnd)?) != data["bounds"] {
-        return Err(Error::new("WINDOW_CHANGED", "Target geometry changed."));
+        return Err(Error::new(
+            "WINDOW_CHANGED",
+            "Cambió la geometría del destino.",
+        ));
     }
     let scale = data
         .get("image_scale")
         .map_or(Some(1.0), Value::as_f64)
         .filter(|v| v.is_finite() && (0.1..=1.0).contains(v))
-        .ok_or_else(|| Error::new("INVALID_PARAMS", "image_scale must be 0.1..1."))?;
+        .ok_or_else(|| Error::new("INVALID_PARAMS", "image_scale debe estar entre 0,1 y 1."))?;
     let backend = data["capture_backend"].as_str().unwrap_or("wgc");
     let path = data["output_path"]
         .as_str()
-        .ok_or_else(|| Error::new("INVALID_PARAMS", "Missing output path."))?;
-    let mut metadata = match backend {
+        .ok_or_else(|| Error::new("INVALID_PARAMS", "Falta la ruta de salida."))?;
+    let (mut image, mut metadata) = match backend {
         "printwindow" => native::capture(data)?,
         "screen_gdi" if data["visible_pixels_allowed"] == true => native::capture(data)?,
         "wgc" => {
             let frame = crate::capture_wgc::capture(hwnd as usize)
                 .map_err(|e| Error::new("WGC_FAILED", &format!("{e:#}")))?;
-            if frame.png.len() > 8 * 1024 * 1024 {
-                return Err(Error::new("IMAGE_TOO_LARGE", "PNG exceeds 8 MiB."));
-            }
-            std::fs::write(path, frame.png)
-                .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot write PNG."))?;
-            json!({"width":frame.width,"height":frame.height,"bounds":{"x":frame.origin_x,"y":frame.origin_y,"width":frame.width,"height":frame.height},"capture_scope":"window","window_id":format!("0x{hwnd:x}"),"path":path,"backend":"wgc","occlusion_sensitive":false})
+            let (width, height) = frame.image.dimensions();
+            (
+                image::DynamicImage::ImageRgba8(frame.image),
+                json!({"bounds":{"x":frame.origin_x,"y":frame.origin_y,"width":width,"height":height},
+                    "backend":"wgc","occlusion_sensitive":false}),
+            )
         }
         _ => {
             return Err(Error::new(
@@ -58,32 +61,94 @@ pub fn capture(data: &Value) -> Result<Value> {
             ));
         }
     };
-    metadata["physicalWidth"] = metadata["width"].clone();
-    metadata["physicalHeight"] = metadata["height"].clone();
-    metadata["image_scale"] = json!(scale);
-    if scale < 1.0 {
-        let bytes =
-            std::fs::read(path).map_err(|_| Error::new("CAPTURE_FAILED", "Cannot read PNG."))?;
-        let (bytes, w, h) = reduce_png(&bytes, scale)?;
-        std::fs::write(path, bytes)
-            .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot write reduced PNG."))?;
-        metadata["width"] = json!(w);
-        metadata["height"] = json!(h);
+    if let Some(region) = data.get("screenshot_region") {
+        let [x, y, width, height] = region_in_frame(region, &data["bounds"], &metadata["bounds"])?;
+        image = image.crop_imm(x, y, width, height);
+        let bounds = &mut metadata["bounds"];
+        bounds["x"] = json!(bounds["x"].as_i64().unwrap() + i64::from(x));
+        bounds["y"] = json!(bounds["y"].as_i64().unwrap() + i64::from(y));
+        bounds["width"] = json!(width);
+        bounds["height"] = json!(height);
     }
+    if backend != "wgc" {
+        let black = image.as_bytes().iter().all(|b| *b == 0);
+        metadata["all_black"] = json!(black);
+        metadata["warnings"] = if black {
+            json!([
+                "La captura está en negro. El contenido puede estar protegido o usar un modo de dibujo incompatible."
+            ])
+        } else {
+            json!([])
+        };
+    }
+    metadata["physicalWidth"] = json!(image.width());
+    metadata["physicalHeight"] = json!(image.height());
+    let image = scale_image(image, scale);
+    metadata["width"] = json!(image.width());
+    metadata["height"] = json!(image.height());
+    metadata["image_scale"] = json!(scale);
+    metadata["capture_scope"] = json!("window");
+    metadata["window_id"] = json!(format!("0x{hwnd:x}"));
+    metadata["path"] = json!(path);
+    let mut output = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|_| Error::new("CAPTURE_FAILED", "No se pudo codificar el PNG."))?;
+    if output.get_ref().len() > 8 * 1024 * 1024 {
+        return Err(Error::new("IMAGE_TOO_LARGE", "El PNG supera 8 MiB."));
+    }
+    std::fs::write(path, output.into_inner())
+        .map_err(|_| Error::new("CAPTURE_FAILED", "No se pudo escribir el PNG."))?;
     Ok(metadata)
 }
 
-fn reduce_png(bytes: &[u8], scale: f64) -> Result<(Vec<u8>, u32, u32)> {
-    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
-        .map_err(|_| Error::new("CAPTURE_FAILED", "Invalid PNG."))?;
+fn region_in_frame(region: &Value, window: &Value, frame: &Value) -> Result<[u32; 4]> {
+    let invalid = || {
+        Error::new(
+            "INVALID_PARAMS",
+            "screenshot_region debe quedar dentro de la ventana y del área capturada.",
+        )
+        .context(json!({"window_bounds":window,"capture_bounds":frame}))
+    };
+    let coordinate = |key: &str| {
+        region[key]
+            .as_i64()
+            .filter(|v| (0..=100000).contains(v))
+            .ok_or_else(invalid)
+    };
+    let (x, y, width, height) = (
+        coordinate("x")?,
+        coordinate("y")?,
+        coordinate("width")?,
+        coordinate("height")?,
+    );
+    if width == 0
+        || height == 0
+        || x + width > window["width"].as_i64().unwrap_or(0)
+        || y + height > window["height"].as_i64().unwrap_or(0)
+    {
+        return Err(invalid());
+    }
+    // WGC can omit the invisible border present in GetWindowRect.
+    let x = x + window["x"].as_i64().unwrap_or(0) - frame["x"].as_i64().unwrap_or(0);
+    let y = y + window["y"].as_i64().unwrap_or(0) - frame["y"].as_i64().unwrap_or(0);
+    if x < 0
+        || y < 0
+        || x + width > frame["width"].as_i64().unwrap_or(0)
+        || y + height > frame["height"].as_i64().unwrap_or(0)
+    {
+        return Err(invalid());
+    }
+    Ok([x as u32, y as u32, width as u32, height as u32])
+}
+
+fn scale_image(image: image::DynamicImage, scale: f64) -> image::DynamicImage {
+    if scale == 1.0 {
+        return image;
+    }
     let w = ((image.width() as f64 * scale).round() as u32).max(1);
     let h = ((image.height() as f64 * scale).round() as u32).max(1);
-    let scaled = image.resize_exact(w, h, image::imageops::FilterType::Triangle);
-    let mut output = std::io::Cursor::new(Vec::new());
-    scaled
-        .write_to(&mut output, image::ImageFormat::Png)
-        .map_err(|_| Error::new("CAPTURE_FAILED", "Cannot encode reduced PNG."))?;
-    Ok((output.into_inner(), w, h))
+    image.resize_exact(w, h, image::imageops::FilterType::Triangle)
 }
 
 #[cfg(test)]
@@ -92,12 +157,22 @@ mod tests {
     #[test]
     fn rgba_png_reduction_matches_retained_dimensions() {
         let image = image::RgbaImage::from_pixel(624, 392, image::Rgba([173, 216, 230, 255]));
-        let mut png = std::io::Cursor::new(Vec::new());
-        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
-        let (bytes, w, h) = reduce_png(png.get_ref(), 0.8).unwrap();
-        assert_eq!((w, h), (499, 314));
-        let decoded = image::load_from_memory(&bytes).unwrap();
-        assert_eq!((decoded.width(), decoded.height()), (499, 314));
+        let scaled = scale_image(image::DynamicImage::ImageRgba8(image), 0.8);
+        assert_eq!((scaled.width(), scaled.height()), (499, 314));
+    }
+    #[test]
+    fn region_is_window_relative_and_cannot_include_missing_borders() {
+        let window = json!({"x":-1000,"y":200,"width":640,"height":400});
+        let frame = json!({"x":-993,"y":200,"width":626,"height":393});
+        let region = json!({"x":30,"y":80,"width":140,"height":40});
+        assert_eq!(
+            region_in_frame(&region, &window, &frame).unwrap(),
+            [23, 80, 140, 40]
+        );
+        let missing_border = json!({"x":0,"y":80,"width":140,"height":40});
+        assert!(region_in_frame(&missing_border, &window, &frame).is_err());
+        let outside = json!({"x":600,"y":80,"width":140,"height":40});
+        assert!(region_in_frame(&outside, &window, &frame).is_err());
     }
     #[test]
     fn scaled_coordinates_use_retained_origin_and_dimensions() {

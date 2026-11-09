@@ -1,5 +1,19 @@
 # Instrucciones del proyecto OmniCore
 
+## Directiva vigente: pruebas locales (2026-11-09)
+
+Las pruebas se ejecutan en el equipo local, antes de publicar cuando corresponda.
+No solicitar, disparar ni reintentar GitHub Actions como parte de un push o PR;
+no usar `gh workflow run`, reruns ni commits vacíos para obtener CI remota.
+Un push no autoriza pruebas remotas. `ci.yml` queda exclusivamente manual para
+una petición explícita del usuario de esa ejecución; no restaurar triggers
+automáticos. Esta directiva prevalece sobre referencias históricas a exigir CI.
+Usar `python scripts/validate-local.py` y consultar
+[validación local](docs/local-validation.md) para suites, prerrequisitos y límites.
+Reportar fallos y pruebas omitidas sin atribuir resultados de otra plataforma.
+Releases conservan su flujo manual independiente y requieren autorización propia.
+
+
 Lee primero `CLAUDE.md` y las directivas vigentes que enlaza. Sus checkpoints
 históricos no amplían el alcance de una tarea actual. Las decisiones de
 `docs/adr/` prevalecen sobre la especificación `docs/spec/OmniCore-v1.md`.

@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# Load the edition's own hash cmdlet even when the parallel npm run has no module cache.
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1')
 . (Join-Path $PSScriptRoot '../install.ps1')
 
 function Assert-Bootstrap([bool]$Condition, [string]$Message) {

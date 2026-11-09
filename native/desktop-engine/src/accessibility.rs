@@ -431,7 +431,29 @@ pub fn action(data: &Value) -> Result<Value> {
                             )
                         })?;
                     }
-                    Some("invoke") if expected["has_submenu"] == true => {
+                    Some("select_option") => {
+                        let label = data["option"]
+                            .as_str()
+                            .filter(|v| !v.trim().is_empty() && v.chars().count() <= 512)
+                            .ok_or_else(|| {
+                                Error::new("INVALID_PARAMS", "option requiere una etiqueta exacta.")
+                            })?;
+                        let guarded = || {
+                            validate()?;
+                            if Instant::now() >= deadline {
+                                return Err(Error::new(
+                                    "UIA_TIMEOUT",
+                                    "La selección caducó antes de aplicarse.",
+                                ));
+                            }
+                            Ok(())
+                        };
+                        return crate::choices::select(&a, &walker, &element, label, guarded);
+                    }
+                    Some("invoke")
+                        if expected["has_submenu"] == true
+                            || expected["control_type_id"] == 50003 =>
+                    {
                         let pattern = element
                             .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
                                 UIA_ExpandCollapsePatternId,
