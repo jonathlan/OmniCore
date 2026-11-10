@@ -37,6 +37,7 @@ public sealed partial class TuiWiringTests
     [Theory]
     [InlineData(120, 40)]
     [InlineData(80, 25)]
+    [InlineData(64, 18)]
     public void SessionOpening_requires_choice_shows_title_and_date_then_explicitly_continues(int columns, int rows) => RunTuiTest(fx =>
     {
         var current = fx.Server.LastSessionId()!;
@@ -53,14 +54,24 @@ public sealed partial class TuiWiringTests
             var label = Assert.Single(list.Source!.ToList().Cast<object>()).ToString()!;
             Assert.Contains("semilla de prueba", label);
             Assert.Matches(@"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", label);
-            foreach (var button in Descendants(fx.App.Overlay).OfType<Button>())
+            Assert.True(list.Frame.Height > 0);
+            var buttons = Descendants(fx.App.Overlay).OfType<Button>().ToArray();
+            Assert.Equal(new[] { "conversation-continue-last", "conversation-open", "conversation-new", "conversation-close" },
+                buttons.Select(button => button.Id));
+            Assert.All(buttons, button =>
+            {
+                Assert.Equal(list.Frame.X, button.Frame.X);
                 Assert.True(button.Frame.Bottom <= fx.App.Overlay.Viewport.Height, button.Id);
+            });
+            for (var i = 1; i < buttons.Length; i++) Assert.Equal(buttons[i - 1].Frame.Bottom, buttons[i].Frame.Y);
         });
         Assert.Equal(current, fx.Server.LastSessionId());
         Assert.Equal(before, fx.Server.AcquireStore().CurrentSequence(current));
-        ExportPreferenceFrame(fx, columns, rows, "session-opening", "Continuar la última");
-        ClickId(fx, "conversation-continue-last");
-        fx.Wait(() => fx.App.Overlay is null && !fx.App.ConversationSelectionPending, "explicit continue accepted");
+        ExportPreferenceFrame(fx, columns, rows, "session-opening", "│  Retomar ");
+        bool Focused(string id) => fx.Read(() => Descendants(fx.App.Overlay!).Single(view => view.Id == id).HasFocus);
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-open"), "up goes from New to Resume");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-continue-last"), "up goes from Resume to Continue last");
+        KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay is null && !fx.App.ConversationSelectionPending, "explicit continue accepted");
         Assert.NotEmpty(fx.Read(() => fx.App.ProjectionState.Conversation.Blocks));
         Assert.Equal(current, fx.Server.LastSessionId());
         Assert.Equal(before, fx.Server.AcquireStore().CurrentSequence(current));
@@ -116,8 +127,29 @@ public sealed partial class TuiWiringTests
         Type(fx, "/retomar");
         KeyWithEffect(fx, KeyCode.Enter, () => fx.App.Overlay?.Id == "conversation-selector", "resume list visible");
         ExportPreferenceFrame(fx, 120, 40, "session-two-existing", "semilla de prueba");
+        bool Focused(string id) => fx.Read(() => Descendants(fx.App.Overlay!).Single(view => view.Id == id).HasFocus);
+        var list = fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single());
+        KeyWithEffect(fx, KeyCode.CursorDown, () => fx.Read(() => list.HasFocus && list.SelectedItem == 1), "down selects the next conversation");
+        KeyWithEffect(fx, KeyCode.CursorDown, () => Focused("conversation-open"), "down at the end reaches Resume and skips Continue last");
+        fx.InjectKey(new Key(KeyCode.CursorRight));
+        Assert.True(Focused("conversation-open"));
+        fx.InjectKey(new Key(KeyCode.CursorLeft));
+        Assert.True(Focused("conversation-open"));
+        KeyWithEffect(fx, KeyCode.CursorDown, () => Focused("conversation-new"), "down reaches New conversation");
+        KeyWithEffect(fx, KeyCode.CursorDown, () => Focused("conversation-close"), "down reaches Close");
+        fx.InjectKey(new Key(KeyCode.CursorDown));
+        Assert.True(Focused("conversation-close"));
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-new"), "up returns to New conversation");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-open"), "up returns to Resume");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => fx.Read(() => list.HasFocus && list.SelectedItem == 1), "up returns to the last selected conversation");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => fx.Read(() => list.HasFocus && list.SelectedItem == 0), "up selects the previous conversation");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-search"), "up from the first conversation reaches Search");
+        fx.Invoke(() => Descendants(fx.App.Overlay!).OfType<TextField>().Single().Text = "sin coincidencias en el fixture");
+        KeyWithEffect(fx, KeyCode.CursorDown, () => Focused("conversation-new"), "down skips the empty list and disabled Resume");
+        KeyWithEffect(fx, KeyCode.CursorUp, () => Focused("conversation-search"), "up skips unavailable controls on the way to Search");
         fx.Invoke(() => Descendants(fx.App.Overlay!).OfType<TextField>().Single().Text = "semilla de prueba");
         fx.Wait(() => fx.Read(() => Descendants(fx.App.Overlay!).OfType<ListView>().Single().Source!.ToList().Count) == 1, "title search narrows choice");
+        KeyWithEffect(fx, KeyCode.CursorDown, () => Focused("conversation-list"), "down enters the filtered list");
         ClickId(fx, "conversation-open");
         fx.Wait(() => fx.App.Overlay is null && fx.Server.LastSessionId() == original, "selected history resumed");
         Assert.NotEmpty(fx.Read(() => fx.App.ProjectionState.Conversation.Blocks));

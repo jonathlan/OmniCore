@@ -12,7 +12,7 @@ internal static class PreferenceNavigation
 {
     private static readonly ConditionalWeakTable<View, object> Attached = new();
 
-    public static void Attach(View scope)
+    public static void Attach(View scope, bool wrap = true)
     {
         foreach (var field in Descendants(scope).Where(IsField))
         {
@@ -33,7 +33,10 @@ internal static class PreferenceNavigation
                 }
                 var fields = Descendants(scope).Where(view => IsField(view) && Available(view, scope)).ToArray();
                 var index = Array.IndexOf(fields, field);
-                if (index >= 0 && fields.Length > 0) fields[(index + delta + fields.Length) % fields.Length].SetFocus();
+                if (index < 0) return;
+                var nextField = index + delta;
+                if (wrap) nextField = (nextField + fields.Length) % fields.Length;
+                if (nextField >= 0 && nextField < fields.Length) fields[nextField].SetFocus();
             };
         }
     }

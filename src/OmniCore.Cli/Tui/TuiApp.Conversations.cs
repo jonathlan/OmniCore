@@ -127,13 +127,25 @@ public sealed partial class TuiApp
         frame.BorderStyle = LineStyle.Single;
         var heading = frame.SubViews.Single(view => view.Id == "omni-menu-title");
         frame.Remove(heading); heading.Dispose(); // The visible border already carries the title.
-        var intro = new MenuInformationLabel { Id = "conversation-intro", X = 2, Y = 1, Width = Dim.Fill(2), Height = 3,
+        var actionRows = _conversationSelectionPending ? 4 : 3;
+        var footerRows = actionRows + 3;
+        var intro = new MenuInformationLabel { Id = "conversation-intro", X = 2, Y = 1, Width = Dim.Fill(2),
+            Height = Dim.Func(_ => Math.Clamp(frame.Viewport.Height - actionRows - 8, 0, 3)),
             Text = _localization.Resolve("shell.conversation.open_help"), CanFocus = false };
-        var search = new TextField { Id = "conversation-search", X = 2, Y = 5, Width = Dim.Fill(2), Height = 1 };
-        var searchLabel = new Label { Id = "conversation-search-label", X = 2, Y = 4, Text = Pref("search"), CanFocus = false };
-        var list = new ListView { Id = "conversation-list", X = 2, Y = 7, Width = Dim.Fill(2), Height = Dim.Fill(9), ShowMarks = false,
+        var searchLabel = new Label { Id = "conversation-search-label", X = 2, Y = Pos.Bottom(intro), Text = Pref("search"), CanFocus = false };
+        var search = new TextField { Id = "conversation-search", X = 2, Y = Pos.Bottom(searchLabel), Width = Dim.Fill(2), Height = 1 };
+        var list = new ListView { Id = "conversation-list", X = 2, Y = Pos.Bottom(search) + 1, Width = Dim.Fill(2), Height = Dim.Fill(footerRows), ShowMarks = false,
             ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar };
-        var notice = new MenuInformationLabel { Id = "conversation-notice", X = 2, Y = Pos.AnchorEnd(8), Width = Dim.Fill(2), Height = 2, CanFocus = false };
+        var notice = new MenuInformationLabel { Id = "conversation-notice", X = 2, Y = Pos.AnchorEnd(footerRows), Width = Dim.Fill(2), Height = 2, CanFocus = false };
+        static Button ActionButton(string id, string text, int rowFromEnd)
+        {
+            var button = new CompactRowButton { Id = id, Text = text, X = 2, Y = Pos.AnchorEnd(rowFromEnd),
+                Height = 1, NoDecorations = true, NoPadding = true, ShadowStyle = ShadowStyles.None };
+            button.Margin.Thickness = new(0);
+            button.Border.Thickness = new(0);
+            button.Padding.Thickness = new(0);
+            return button;
+        }
         var filtered = rows;
         void Update()
         {
@@ -143,6 +155,7 @@ public sealed partial class TuiApp
                 + row.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm") + " · "
                 + (row.Title.Length > 0 ? row.Title : _localization.Resolve("shell.new_session")))));
             if (filtered.Length > 0) list.SelectedItem = 0;
+            list.Enabled = filtered.Length > 0;
             notice.Text = filtered.Length == 0 ? _localization.Resolve("shell.conversation.empty") : "";
         }
         void Open()
@@ -151,28 +164,32 @@ public sealed partial class TuiApp
             if (ChangeConversation("conversation.resume", filtered[index].Id, notice)) { CloseOverlay(); _composer!.SetFocus(); }
         }
         list.Accepted += (_, args) => { args.Handled = true; Open(); };
-        var open = new Button { Id = "conversation-open", X = 2, Y = Pos.AnchorEnd(4), Text = _localization.Resolve("shell.conversation.resume") };
+        var open = ActionButton("conversation-open", _localization.Resolve("shell.conversation.resume"), 4);
         search.TextChanged += (_, _) => { Update(); open.Enabled = filtered.Length > 0; };
         list.ValueChanged += (_, _) => open.Enabled = list.SelectedItem is int at && at >= 0 && at < filtered.Length;
-        search.KeyDown += (_, key) =>
-        {
-            if (key.KeyCode == KeyCode.Enter) { key.Handled = true; Open(); }
-            else if (key.KeyCode == KeyCode.CursorDown && filtered.Length > 0)
-            { key.Handled = true; list.SetFocus(); }
-        };
+        search.KeyDown += (_, key) => { if (key.KeyCode == KeyCode.Enter) { key.Handled = true; Open(); } };
         open.Accepted += (_, _) => Open();
-        var create = new Button { Id = "conversation-new", X = Pos.Right(open) + 2, Y = Pos.AnchorEnd(4), Text = _localization.Resolve("shell.conversation.new") };
+        var create = ActionButton("conversation-new", _localization.Resolve("shell.conversation.new"), 3);
         create.Accepted += (_, _) => { if (ChangeConversation("conversation.new", errorLabel: notice)) { CloseOverlay(); _composer!.SetFocus(); } };
         var current = rows.FirstOrDefault(row => row.Current);
-        var continueLast = new Button { Id = "conversation-continue-last", X = 2, Y = Pos.AnchorEnd(6),
-            Text = _localization.Resolve("shell.conversation.continue_last"), Visible = _conversationSelectionPending, Enabled = current is not null };
+        var continueLast = ActionButton("conversation-continue-last", _localization.Resolve("shell.conversation.continue_last"), 5);
+        continueLast.Visible = _conversationSelectionPending;
+        continueLast.Enabled = current is not null;
         continueLast.Accepted += (_, _) =>
         { if (current is not null && ChangeConversation("conversation.resume", current.Id, notice)) { CloseOverlay(); _composer!.SetFocus(); } };
-        var close = new Button { Id = "conversation-close", X = 2, Y = Pos.AnchorEnd(2), Text = Pref("close") };
+        var close = ActionButton("conversation-close", Pref("close"), 2);
         close.Accepted += (_, _) => CloseOverlay();
-        frame.Add(intro, searchLabel, search, list, notice, open, create, continueLast, close); Update();
+        frame.Add(intro, searchLabel, search, list, notice, continueLast, open, create, close);
+        PreferenceNavigation.Attach(frame, wrap: false);
+        frame.KeyDown += (_, key) =>
+        {
+            if (!search.HasFocus && key.KeyCode is KeyCode.CursorLeft or KeyCode.CursorRight) key.Handled = true;
+        };
+        Update();
         open.Enabled = filtered.Length > 0; ApplyTheme(frame);
         _overlay = frame; _window.Add(frame);
-        if (_conversationSelectionPending) create.SetFocus(); else list.SetFocus();
+        if (_conversationSelectionPending) create.SetFocus();
+        else if (list.Enabled) list.SetFocus();
+        else search.SetFocus();
     }
 }
